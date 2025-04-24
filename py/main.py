@@ -41,9 +41,9 @@ tv = SamsungTVWS('10.0.1.111')
 # tv.art().set_artmode(False)
 
 # # # Upload a picture
-file = open('/Users/sjoerdbolten/Documents/Projects/tijdvorm/py/adsdsadsa.png', 'rb')
+file = open('/Users/sjoerdbolten/Documents/Projects/tijdvorm/py/timeform_art_v17.png', 'rb')
 data = file.read()
-content_id  = tv.art().upload(data, matte='shadowbox_polar')
+content_id  = tv.art().upload(data, matte=None)
 print(content_id)
 sleep(2)
 print(tv.art().select_image(content_id, show=True))
