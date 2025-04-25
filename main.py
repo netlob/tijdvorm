@@ -6,8 +6,6 @@ import os
 import time
 import requests
 import logging
-# import sys
-# sys.path.insert(0, '/Users/sjoerdbolten/Documents/fungits/samsung-tv-ws-api')
 
 from samsungtvws import SamsungTVWS
 
@@ -36,7 +34,7 @@ SIMULATE_HOUR = None# Set hour (0-23) or None
 MODIFIED_WEATHER_URL = "https://api.weatherapi.com/v1/current.json?key=8cd71ded6ce646e888600951251504&q=Amsterdam,NL"
 
 # Font Configuration
-FONT_PATH = "/System/Library/Fonts/SFNS.ttf"
+FONT_PATH = "./fonts/SFNS.ttf"
 TEMP_FONT_SIZE = 63
 COND_FONT_SIZE = 47
 TIME_FONT_SIZE = 39
