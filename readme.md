@@ -2,7 +2,7 @@
 
 script to publish live art to samsung the frame tvs, using local weather data and some nice graphics
 
-![Example Day Output](images/example_day.png)
+![Example Output](images/example.png)
 
 ## credits
 
