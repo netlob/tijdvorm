@@ -9,8 +9,14 @@ import logging
 
 from samsungtvws import SamsungTVWS
 
-# --- Configuration Constants ---
+# --- Samsung TV Config ---
+TV_IP = "10.0.1.111" # !!! REPLACE WITH YOUR TV's IP ADDRESS !!!
+UPDATE_INTERVAL_MINUTES = 1
+DELETE_OLD_ART = False # turn on to always delete all manually uploaded art
+# TODO: tag & only delete old "timefroms" art, not user uploaded art
 
+# --- Configuration Constants ---
+WEATHER_LOCATION = "Amsterdam,NL"
 URL = "https://timeforms.app"
 
 # Selectors
@@ -31,7 +37,7 @@ RENDER_WAIT_TIME = 3 # Seconds to wait after page actions for rendering
 SIMULATE_HOUR = None# Set hour (0-23) or None
 
 # Weather API
-MODIFIED_WEATHER_URL = "https://api.weatherapi.com/v1/current.json?key=8cd71ded6ce646e888600951251504&q=Amsterdam,NL"
+MODIFIED_WEATHER_URL = f"https://api.weatherapi.com/v1/current.json?key=8cd71ded6ce646e888600951251504&q={WEATHER_LOCATION}"
 
 # Font Configuration
 FONT_PATH = "./fonts/SFNS.ttf"
@@ -65,9 +71,7 @@ HIDE_CSS = """
   }
 """
 
-# --- Samsung TV Config ---
-TV_IP = "10.0.1.111" # !!! REPLACE WITH YOUR TV'S IP ADDRESS !!!
-UPDATE_INTERVAL_MINUTES = 1
+
 
 # --- Helper Functions ---
 
@@ -376,7 +380,7 @@ def update_tv_art(tv_ip, image_path):
 
         # 3. Delete old art (except the new one)
         ids_to_delete = [art_id for art_id in user_art_ids if art_id != new_content_id]
-        if ids_to_delete:
+        if ids_to_delete and DELETE_OLD_ART:
             print(f"Deleting {len(ids_to_delete)} old user art pieces: {ids_to_delete}")
             delete_result = tv.art().delete_list(ids_to_delete)
             # Check delete_result if needed (docs don't specify return value)
@@ -424,9 +428,9 @@ def main_loop(tv_ip, interval_minutes):
         # Calculate seconds until the next minute
         current_time = time.time()
         seconds_past_minute = current_time % 60
-        sleep_seconds = 58 - seconds_past_minute
+        sleep_seconds = (interval_minutes * 60) - seconds_past_minute
         if sleep_seconds == 0: # Avoid 0 sleep if exactly on the minute
-            sleep_seconds = 58
+            sleep_seconds = (interval_minutes * 60) - 1
 
         print(f"===== Cycle finished. Sleeping for {sleep_seconds:.2f} seconds until next minute... ====")
         time.sleep(sleep_seconds)
