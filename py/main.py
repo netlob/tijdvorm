@@ -3,6 +3,11 @@ import logging
 from time import sleep
 sys.path.append('../')
 
+# from samsungtvws import SamsungTVWS
+
+
+sys.path.insert(0, '/Users/sjoerdbolten/Documents/fungits/samsung-tv-ws-api')
+
 from samsungtvws import SamsungTVWS
 
 # Increase debug level
@@ -19,9 +24,9 @@ tv = SamsungTVWS('10.0.1.111')
 # info = tv.art().available()
 # logging.info(info)
 
-# Retrieve information about the currently selected art
-# info = tv.art().get_current()
-# logging.info(info)
+# # Retrieve information about the currently selected art
+info = tv.art().get_current()
+logging.info(info)
 
 # # Retrieve a thumbnail for a specific piece of art. Returns a JPEG.
 # thumbnail = tv.art().get_thumbnail('SAM-F0206')
@@ -41,9 +46,9 @@ tv = SamsungTVWS('10.0.1.111')
 # tv.art().set_artmode(False)
 
 # # # Upload a picture
-file = open('/Users/sjoerdbolten/Documents/Projects/tijdvorm/py/timeform_art_v17.png', 'rb')
+file = open('/Users/sjoerdbolten/Documents/Projects/tijdvorm/py/timeform_art.png', 'rb')
 data = file.read()
-content_id  = tv.art().upload(data, matte=None)
+content_id  = tv.art().upload(data, matte='none')
 print(content_id)
 sleep(2)
 print(tv.art().select_image(content_id, show=True))

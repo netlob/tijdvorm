@@ -5,6 +5,11 @@ import io
 import os
 import time
 import requests
+import logging
+# import sys
+# sys.path.insert(0, '/Users/sjoerdbolten/Documents/fungits/samsung-tv-ws-api')
+
+from samsungtvws import SamsungTVWS
 
 # --- Configuration Constants ---
 
@@ -17,15 +22,15 @@ SLIDER_TRACK_SELECTOR = 'span.relative.flex.touch-none.select-none.items-center.
 # Output
 OUTPUT_WIDTH = 1080
 OUTPUT_HEIGHT = 1920
-OUTPUT_FILENAME = "timeform_art_v19.png"
+OUTPUT_FILENAME = "timeform_art.png"
 
 # Playwright Timing
 PAGE_LOAD_TIMEOUT = 90000
 SELECTOR_TIMEOUT = 60000
-RENDER_WAIT_TIME = 2 # Seconds to wait after page actions for rendering
+RENDER_WAIT_TIME = 3 # Seconds to wait after page actions for rendering
 
 # Simulation
-SIMULATE_HOUR = 14 # Set hour (0-23) or None
+SIMULATE_HOUR = None# Set hour (0-23) or None
 
 # Weather API
 MODIFIED_WEATHER_URL = "https://api.weatherapi.com/v1/current.json?key=8cd71ded6ce646e888600951251504&q=Amsterdam,NL"
@@ -61,6 +66,10 @@ HIDE_CSS = """
     display: none !important;
   }
 """
+
+# --- Samsung TV Config ---
+TV_IP = "10.0.1.111" # !!! REPLACE WITH YOUR TV'S IP ADDRESS !!!
+UPDATE_INTERVAL_MINUTES = 1
 
 # --- Helper Functions ---
 
@@ -230,7 +239,7 @@ def add_text_overlay(image, text_data, fonts, align_artwork_top):
     
     temp_str = text_data.get('temp', '--°C')
     cond_str = text_data.get('condition', 'Unknown')
-    time_str = text_data.get('time')
+    time_str = time.strftime("%H:%M")
 
     # Get the single font type loaded for different sizes
     font_temp = fonts.get('font_temp')
@@ -276,9 +285,10 @@ def add_text_overlay(image, text_data, fonts, align_artwork_top):
 
     return image
 
-# --- Main Execution ---
+# --- Image Generation Orchestrator (async) ---
 
-async def main():
+async def generate_timeform_image():
+    """Orchestrates weather fetch, font load, screenshot, processing, overlay."""
     # 1. Fetch Weather Data
     weather_data = get_weather_data(MODIFIED_WEATHER_URL)
     text_data = {'temp': '--°C', 'condition': 'Weather unavailable', 'time': None}
@@ -298,26 +308,130 @@ async def main():
     # 2. Load Fonts
     fonts = load_fonts()
     if not fonts.get('font_temp') or not fonts.get('font_cond'):
-        print("Error: Essential fonts could not be loaded. Aborting."); return
+        print("Error: Essential fonts could not be loaded. Aborting image generation."); return None
 
     # 3. Capture Screenshot
     screenshot_bytes = await take_screenshot()
-    if not screenshot_bytes: print("Failed to capture screenshot. Aborting."); return
+    if not screenshot_bytes: print("Failed to capture screenshot. Aborting image generation."); return None
 
     # 4. Process Screenshot (Crop, Zoom, Align, Create Canvas)
     background_image, align_artwork_top = process_screenshot(screenshot_bytes)
-    if not background_image: print("Failed to process screenshot. Aborting."); return
+    if not background_image: print("Failed to process screenshot. Aborting image generation."); return None
 
     # 5. Add Text Overlay
     final_image = add_text_overlay(background_image, text_data, fonts, align_artwork_top)
-    if not final_image: print("Failed to add text overlay. Aborting."); return
+    if not final_image: print("Failed to add text overlay. Aborting image generation."); return None
 
     # 6. Save Final Image
     try:
-        final_image.save(OUTPUT_FILENAME)
-        print(f"Image saved successfully as {OUTPUT_FILENAME}")
+        abs_output_path = os.path.abspath(OUTPUT_FILENAME)
+        final_image.save(abs_output_path)
+        print(f"Image generated and saved successfully as {abs_output_path}")
+        return abs_output_path # Return the full path
     except Exception as e:
         print(f"Error saving final image: {e}")
+        return None
+
+# --- Samsung TV Interaction (Synchronous) ---
+
+def update_tv_art(tv_ip, image_path):
+    """Connects to TV, uploads image, cleans old, selects new."""
+    print(f"--- Starting TV Update for {tv_ip} --- ")
+    try:
+        print("Connecting to TV...")
+        tv = SamsungTVWS(tv_ip)
+        # Optional: Check connection state if library provides it
+        print("Connected.")
+
+        # 1. Upload new art
+        print(f"Reading image file: {image_path}")
+        with open(image_path, 'rb') as f:
+            image_data = f.read()
+        
+        print("Uploading new image...")
+        upload_result = tv.art().upload(image_data, matte='none', portrait_matte='none') # Specify PNG
+        
+        if not upload_result:
+             print("Error: Failed to upload image or get content_id.")
+             return False
+        
+        new_content_id = upload_result
+        print(f"Image uploaded successfully. New Content ID: {new_content_id}")
+
+        # 2. Get existing user art
+        print("Getting available art list...")
+        available_art = tv.art().available()
+        # if isinstance(available_art, str):
+        #     available_art = json.loads(available_art)
+        if not available_art:
+            print("Warning: Could not get available art list or list is empty.")
+            user_art_ids = []
+        else:
+            user_art_ids = [art['content_id'] for art in available_art if art['content_id'].startswith('MY_')]
+            print(f"Found {len(user_art_ids)} existing user art pieces.")
+
+
+        # 3. Select the new art
+        print(f"Selecting new image: {new_content_id}")
+        tv.art().select_image(new_content_id, show=True)
+        print("Selection command sent.")
+
+        # 3. Delete old art (except the new one)
+        ids_to_delete = [art_id for art_id in user_art_ids if art_id != new_content_id]
+        if ids_to_delete:
+            print(f"Deleting {len(ids_to_delete)} old user art pieces: {ids_to_delete}")
+            delete_result = tv.art().delete_list(ids_to_delete)
+            # Check delete_result if needed (docs don't specify return value)
+            print("Deletion command sent.")
+        else:
+            print("No old user art pieces to delete.")
+
+        # 5. Ensure Art Mode is On
+        try:
+            print("Ensuring Art Mode is ON...")
+            tv.art().set_artmode(True)
+            print("Set Art Mode command sent.")
+        except Exception as e_artmode:
+            print(f"Warning: Could not set Art Mode (may already be on or TV off): {e_artmode}")
+
+        print("--- TV Update Finished ---")
+        return True
+
+    except Exception as e:
+        print(f"Error during TV interaction: {e}")
+        print("--- TV Update Failed ---")
+        return False
+
+# --- Main Loop (Synchronous) ---
+
+def main_loop(tv_ip, interval_minutes):
+    """Runs the image generation and TV update periodically."""
+    logging.basicConfig(level=logging.INFO)
+    print(f"Starting main loop. TV IP: {tv_ip}, Update Interval: {interval_minutes} minutes.")
+    while True:
+        print(f"\n===== {time.strftime('%Y-%m-%d %H:%M:%S')} - Running Update Cycle ====")
+        try:
+            # Run the async image generation
+            image_path = asyncio.run(generate_timeform_image())
+
+            if image_path:
+                # Run the synchronous TV update
+                update_tv_art(tv_ip, image_path)
+            else:
+                print("Image generation failed, skipping TV update.")
+
+        except Exception as e:
+            print(f"Error in main loop cycle: {e}")
+        
+        sleep_seconds = interval_minutes * 60
+        print(f"===== Cycle finished. Sleeping for {interval_minutes} minutes ({sleep_seconds} seconds)... ====")
+        time.sleep(sleep_seconds)
 
 if __name__ == "__main__":
-    asyncio.run(main()) 
+    # Ensure TV_IP is set correctly before running!
+    if TV_IP == "192.168.1.100":
+       print("\n!!! WARNING: TV_IP is set to the default placeholder.")
+       print("!!! Please edit the script and set TV_IP to your Samsung Frame TV's actual IP address.\n")
+       # exit(1) # Optional: Uncomment to prevent running with placeholder
+    # update_tv_art(TV_IP, '/Users/sjoerdbolten/Documents/Projects/tijdvorm/py/timeform_art.png')
+    main_loop(TV_IP, UPDATE_INTERVAL_MINUTES) 
