@@ -343,7 +343,7 @@ def connect_to_tv(tv_ip):
 
     # check if art mode is supported
     art_info = tv.art().supported()
-    if art_info:
+    if art_info is True:
         print("Connected.")
         return tv
     
@@ -353,23 +353,6 @@ def update_tv_art(tv, image_path):
     """Connects to TV, uploads image, cleans old, selects new."""
     print(f"--- Starting TV Update --- ")
     try:
-        # Check if Art Mode is supported
-        try:
-            print("Checking if Art Mode is supported...")
-            art_info = tv.art().supported()
-            # Example response: {'data': {'ArtmodeSupported': True, 'Artmode': True}, 'event': 'artmode_status'}
-            # Check if 'data' and 'ArtmodeSupported' exist and if it's True
-            if not art_info or not isinstance(art_info, dict) or \
-               not art_info.get('data', {}).get('ArtmodeSupported', False):
-                print("Error: TV does not support Art Mode or failed to get info. Skipping update.")
-                print("--- TV Update Failed ---")
-                return False
-            print("Art Mode is supported.")
-        except Exception as e_support:
-            print(f"Error checking Art Mode support (TV might be off or unreachable): {e_support}")
-            print("--- TV Update Failed ---")
-            return False
-
         # 1. Upload new art
         print(f"Reading image file: {image_path}")
         with open(image_path, 'rb') as f:
@@ -436,11 +419,9 @@ def main_loop(tv_ip, interval_minutes):
     logging.basicConfig(level=logging.INFO)
     print(f"Starting main loop. TV IP: {tv_ip}, Update Interval: {interval_minutes} minutes.")
     tv = connect_to_tv(tv_ip)
-    iteration = 0
+    iteration = 1
     while True:
-        iteration += 1
-
-        if iteration > 0 and iteration % 10 == 0:
+        if iteration % 10 == 0:
             print("Reconnecting to TV...")
             tv = connect_to_tv(tv_ip)
 
