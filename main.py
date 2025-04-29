@@ -343,14 +343,11 @@ def connect_to_tv(tv_ip):
 
     # check if art mode is supported
     art_info = tv.art().supported()
-    if not art_info or not isinstance(art_info, dict) or \
-       not art_info.get('data', {}).get('ArtmodeSupported', False):
-        print("Error: TV does not support Art Mode or failed to get info. Skipping update.")
-        print("--- TV Update Failed ---")
-        return False
-
-    print("Connected.")
-    return tv
+    if art_info:
+        print("Connected.")
+        return tv
+    
+    return False
 
 def update_tv_art(tv, image_path):
     """Connects to TV, uploads image, cleans old, selects new."""
