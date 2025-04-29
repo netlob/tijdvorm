@@ -391,7 +391,7 @@ def update_tv_art(tv, image_path):
             user_art_ids = []
         else:
             user_art_ids = [art['content_id'] for art in available_art if art['content_id'].startswith('MY_')]
-            print(f"Found {len(user_art_ids)} existing user art pieces.")
+            print(f"Found {len(user_art_ids)} existing user art pieces: {user_art_ids}")
 
         # 5. Delete old art (except the new one)
         ids_to_delete = [art_id for art_id in user_art_ids if art_id != new_content_id]
