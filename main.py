@@ -353,7 +353,15 @@ def update_tv_art(tv, image_path):
     """Connects to TV, uploads image, cleans old, selects new."""
     print(f"--- Starting TV Update --- ")
     try:
-        # 1. Upload new art
+        # 1. Ensure Art Mode is On
+        try:
+            print("Ensuring Art Mode is ON...")
+            tv.art().set_artmode(True)
+            print("Set Art Mode command sent.")
+        except Exception as e_artmode:
+            print(f"Warning: Could not set Art Mode (may already be on or TV off): {e_artmode}")
+
+        # 2. Upload new art
         print(f"Reading image file: {image_path}")
         with open(image_path, 'rb') as f:
             image_data = f.read()
@@ -368,7 +376,12 @@ def update_tv_art(tv, image_path):
         new_content_id = upload_result
         print(f"Image uploaded successfully. New Content ID: {new_content_id}")
 
-        # 2. Get existing user art
+        # 3. Select the new art
+        print(f"Selecting new image: {new_content_id}")
+        tv.art().select_image(new_content_id, show=True)
+        print("Selection command sent.")
+
+        # 4. Get existing user art
         print("Getting available art list...")
         available_art = tv.art().available()
         # if isinstance(available_art, str):
@@ -380,13 +393,7 @@ def update_tv_art(tv, image_path):
             user_art_ids = [art['content_id'] for art in available_art if art['content_id'].startswith('MY_')]
             print(f"Found {len(user_art_ids)} existing user art pieces.")
 
-
-        # 3. Select the new art
-        print(f"Selecting new image: {new_content_id}")
-        tv.art().select_image(new_content_id, show=True)
-        print("Selection command sent.")
-
-        # 3. Delete old art (except the new one)
+        # 5. Delete old art (except the new one)
         ids_to_delete = [art_id for art_id in user_art_ids if art_id != new_content_id]
         if ids_to_delete and DELETE_OLD_ART:
             print(f"Deleting {len(ids_to_delete)} old user art pieces: {ids_to_delete}")
@@ -395,14 +402,6 @@ def update_tv_art(tv, image_path):
             print("Deletion command sent.")
         else:
             print("No old user art pieces to delete.")
-
-        # 5. Ensure Art Mode is On
-        try:
-            print("Ensuring Art Mode is ON...")
-            tv.art().set_artmode(True)
-            print("Set Art Mode command sent.")
-        except Exception as e_artmode:
-            print(f"Warning: Could not set Art Mode (may already be on or TV off): {e_artmode}")
 
         print("--- TV Update Finished ---")
         return True
