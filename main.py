@@ -336,14 +336,42 @@ async def generate_timeform_image():
 
 # --- Samsung TV Interaction (Synchronous) ---
 
-def update_tv_art(tv_ip, image_path):
+def connect_to_tv(tv_ip):
     """Connects to TV, uploads image, cleans old, selects new."""
-    print(f"--- Starting TV Update for {tv_ip} --- ")
+    print(f"Connecting to TV...")
+    tv = SamsungTVWS(tv_ip)
+
+    # check if art mode is supported
+    art_info = tv.art().supported()
+    if not art_info or not isinstance(art_info, dict) or \
+       not art_info.get('data', {}).get('ArtmodeSupported', False):
+        print("Error: TV does not support Art Mode or failed to get info. Skipping update.")
+        print("--- TV Update Failed ---")
+        return False
+
+    print("Connected.")
+    return tv
+
+def update_tv_art(tv, image_path):
+    """Connects to TV, uploads image, cleans old, selects new."""
+    print(f"--- Starting TV Update --- ")
     try:
-        print("Connecting to TV...")
-        tv = SamsungTVWS(tv_ip)
-        # Optional: Check connection state if library provides it
-        print("Connected.")
+        # Check if Art Mode is supported
+        try:
+            print("Checking if Art Mode is supported...")
+            art_info = tv.art().supported()
+            # Example response: {'data': {'ArtmodeSupported': True, 'Artmode': True}, 'event': 'artmode_status'}
+            # Check if 'data' and 'ArtmodeSupported' exist and if it's True
+            if not art_info or not isinstance(art_info, dict) or \
+               not art_info.get('data', {}).get('ArtmodeSupported', False):
+                print("Error: TV does not support Art Mode or failed to get info. Skipping update.")
+                print("--- TV Update Failed ---")
+                return False
+            print("Art Mode is supported.")
+        except Exception as e_support:
+            print(f"Error checking Art Mode support (TV might be off or unreachable): {e_support}")
+            print("--- TV Update Failed ---")
+            return False
 
         # 1. Upload new art
         print(f"Reading image file: {image_path}")
@@ -413,12 +441,17 @@ def main_loop(tv_ip, interval_minutes):
     while True:
         print(f"\n===== {time.strftime('%Y-%m-%d %H:%M:%S')} - Running Update Cycle ====")
         try:
+            tv = connect_to_tv(tv_ip)
+            if not tv:
+                print("Failed to connect to TV. Skipping update.")
+                continue
+
             # Run the async image generation
             image_path = asyncio.run(generate_timeform_image())
 
             if image_path:
                 # Run the synchronous TV update
-                update_tv_art(tv_ip, image_path)
+                update_tv_art(tv, image_path)
             else:
                 print("Image generation failed, skipping TV update.")
 
