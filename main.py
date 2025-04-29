@@ -435,10 +435,17 @@ def main_loop(tv_ip, interval_minutes):
     """Runs the image generation and TV update periodically."""
     logging.basicConfig(level=logging.INFO)
     print(f"Starting main loop. TV IP: {tv_ip}, Update Interval: {interval_minutes} minutes.")
+    tv = connect_to_tv(tv_ip)
+    iteration = 0
     while True:
-        print(f"\n===== {time.strftime('%Y-%m-%d %H:%M:%S')} - Running Update Cycle ====")
-        try:
+        iteration += 1
+
+        if iteration > 0 and iteration % 10 == 0:
+            print("Reconnecting to TV...")
             tv = connect_to_tv(tv_ip)
+
+        print(f"\n===== {time.strftime('%Y-%m-%d %H:%M:%S')} - Running Update Cycle {iteration} ====")
+        try:
             if tv is False:
                 print("Failed to connect to TV. Skipping update.")
                 continue
@@ -454,11 +461,6 @@ def main_loop(tv_ip, interval_minutes):
 
         except Exception as e:
             print(f"Error in main loop cycle: {e}")
-        
-        try:
-            tv.close()
-        except Exception as e:
-            print(f"Warning: Error while closing TV connection: {e}")
 
         # Calculate seconds until the next minute
         current_time = time.time()
