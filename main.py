@@ -439,7 +439,7 @@ def main_loop(tv_ip, interval_minutes):
         print(f"\n===== {time.strftime('%Y-%m-%d %H:%M:%S')} - Running Update Cycle ====")
         try:
             tv = connect_to_tv(tv_ip)
-            if not tv:
+            if tv is False:
                 print("Failed to connect to TV. Skipping update.")
                 continue
 
