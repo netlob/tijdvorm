@@ -455,6 +455,11 @@ def main_loop(tv_ip, interval_minutes):
         except Exception as e:
             print(f"Error in main loop cycle: {e}")
         
+        try:
+            tv.close()
+        except Exception as e:
+            print(f"Warning: Error while closing TV connection: {e}")
+
         # Calculate seconds until the next minute
         current_time = time.time()
         seconds_past_minute = current_time % 60
