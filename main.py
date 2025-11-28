@@ -324,6 +324,9 @@ async def generate_timeform_image():
     final_image = add_text_overlay(background_image, text_data, fonts, align_artwork_top)
     if not final_image: print("Failed to add text overlay. Aborting image generation."); return None
 
+    # Rotate the final image 180 degrees
+    final_image = final_image.rotate(180)
+
     # 6. Save Final Image
     try:
         abs_output_path = os.path.abspath(OUTPUT_FILENAME)
