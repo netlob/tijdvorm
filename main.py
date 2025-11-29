@@ -27,6 +27,7 @@ SLIDER_TRACK_SELECTOR = 'span.relative.flex.touch-none.select-none.items-center.
 OUTPUT_WIDTH = 1080
 OUTPUT_HEIGHT = 1920
 OUTPUT_FILENAME = "timeform_art.png"
+JOHN_PORK_FILENAME = "johnpork.png"
 
 # Playwright Timing
 PAGE_LOAD_TIMEOUT = 90000
@@ -337,6 +338,20 @@ async def generate_timeform_image():
         print(f"Error saving final image: {e}")
         return None
 
+def prepare_rotated_image(source_path):
+    """Rotates a static image 180 degrees and saves it."""
+    try:
+        img = Image.open(source_path)
+        rotated_img = img.rotate(180)
+        output_filename = f"rotated_{os.path.basename(source_path)}"
+        abs_path = os.path.abspath(output_filename)
+        rotated_img.save(abs_path)
+        print(f"Image rotated and saved to: {abs_path}")
+        return abs_path
+    except Exception as e:
+        print(f"Error preparing rotated image: {e}")
+        return None
+
 # --- Samsung TV Interaction (Synchronous) ---
 
 def connect_to_tv(tv_ip):
@@ -433,14 +448,27 @@ def main_loop(tv_ip, interval_minutes):
                 print("Failed to connect to TV. Skipping update.")
                 continue
 
-            # Run the async image generation
-            image_path = asyncio.run(generate_timeform_image())
+            # Determine which image to show
+            if iteration % 2 == 0:
+                print("It's John Pork time!")
+                if os.path.exists(JOHN_PORK_FILENAME):
+                    image_path = prepare_rotated_image(JOHN_PORK_FILENAME)
+                else:
+                    print(f"Error: {JOHN_PORK_FILENAME} not found.")
+                    image_path = None
+
+                if not image_path:
+                    print("Falling back to Timeform.")
+                    image_path = asyncio.run(generate_timeform_image())
+            else:
+                # Run the async image generation
+                image_path = asyncio.run(generate_timeform_image())
 
             if image_path:
                 # Run the synchronous TV update
                 update_tv_art(tv, image_path)
             else:
-                print("Image generation failed, skipping TV update.")
+                print("Image generation/selection failed, skipping TV update.")
 
         except Exception as e:
             print(f"Error in main loop cycle: {e}")
@@ -454,6 +482,7 @@ def main_loop(tv_ip, interval_minutes):
 
         print(f"===== Cycle finished. Sleeping for {sleep_seconds:.2f} seconds until next minute... ====")
         time.sleep(sleep_seconds)
+        iteration += 1
 
 if __name__ == "__main__":
     # Ensure TV_IP is set correctly before running!
