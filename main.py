@@ -28,6 +28,7 @@ OUTPUT_WIDTH = 1080
 OUTPUT_HEIGHT = 1920
 OUTPUT_FILENAME = "timeform_art.png"
 JOHN_PORK_FILENAME = "johnpork.png"
+BOEF_FILENAME = "boef.png"
 
 # Playwright Timing
 PAGE_LOAD_TIMEOUT = 90000
@@ -449,18 +450,24 @@ def main_loop(tv_ip, interval_minutes):
                 continue
 
             # Determine which image to show
-            if iteration % 2 == 0:
+            cycle_stage = iteration % 4
+            image_path = None
+
+            if cycle_stage == 2: # 2, 6, 10... -> John Pork
                 print("It's John Pork time!")
                 if os.path.exists(JOHN_PORK_FILENAME):
                     image_path = prepare_rotated_image(JOHN_PORK_FILENAME)
                 else:
                     print(f"Error: {JOHN_PORK_FILENAME} not found.")
-                    image_path = None
+            elif cycle_stage == 0: # 4, 8, 12... -> Boef
+                print("It's Boef time!")
+                if os.path.exists(BOEF_FILENAME):
+                    image_path = prepare_rotated_image(BOEF_FILENAME)
+                else:
+                    print(f"Error: {BOEF_FILENAME} not found.")
 
-                if not image_path:
-                    print("Falling back to Timeform.")
-                    image_path = asyncio.run(generate_timeform_image())
-            else:
+            # If it's a regular cycle (odd) or special image missing, generate Timeform
+            if not image_path:
                 # Run the async image generation
                 image_path = asyncio.run(generate_timeform_image())
 
