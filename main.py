@@ -4,6 +4,7 @@ from PIL import Image, ImageDraw, ImageFont
 import io
 import os
 import time
+import random
 import requests
 import logging
 
@@ -27,8 +28,7 @@ SLIDER_TRACK_SELECTOR = 'span.relative.flex.touch-none.select-none.items-center.
 OUTPUT_WIDTH = 1080
 OUTPUT_HEIGHT = 1920
 OUTPUT_FILENAME = "timeform_art.png"
-JOHN_PORK_FILENAME = "johnpork.png"
-BOEF_FILENAME = "boef.png"
+EASTER_EGGS_DIR = "./eastereggs"
 
 # Playwright Timing
 PAGE_LOAD_TIMEOUT = 90000
@@ -353,6 +353,23 @@ def prepare_rotated_image(source_path):
         print(f"Error preparing rotated image: {e}")
         return None
 
+def get_random_easter_egg():
+    """Selects a random image from the easter eggs directory."""
+    if not os.path.exists(EASTER_EGGS_DIR):
+        return None
+    
+    try:
+        files = os.listdir(EASTER_EGGS_DIR)
+        images = [f for f in files if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+        if not images:
+            return None
+        
+        selected_image = random.choice(images)
+        return os.path.join(EASTER_EGGS_DIR, selected_image)
+    except Exception as e:
+        print(f"Error selecting random easter egg: {e}")
+        return None
+
 # --- Samsung TV Interaction (Synchronous) ---
 
 def connect_to_tv(tv_ip):
@@ -450,23 +467,20 @@ def main_loop(tv_ip, interval_minutes):
                 continue
 
             # Determine which image to show
-            cycle_stage = iteration % 4
+            # 1 in 10 chance for an easter egg
+            is_easter_egg = random.randint(1, 10) == 1
             image_path = None
 
-            if cycle_stage == 2: # 2, 6, 10... -> John Pork
-                print("It's John Pork time!")
-                if os.path.exists(JOHN_PORK_FILENAME):
-                    image_path = prepare_rotated_image(JOHN_PORK_FILENAME)
+            if is_easter_egg:
+                print("It's Easter Egg time! (1/10 chance hit)")
+                egg_path = get_random_easter_egg()
+                if egg_path:
+                     print(f"Selected easter egg: {egg_path}")
+                     image_path = prepare_rotated_image(egg_path)
                 else:
-                    print(f"Error: {JOHN_PORK_FILENAME} not found.")
-            elif cycle_stage == 0: # 4, 8, 12... -> Boef
-                print("It's Boef time!")
-                if os.path.exists(BOEF_FILENAME):
-                    image_path = prepare_rotated_image(BOEF_FILENAME)
-                else:
-                    print(f"Error: {BOEF_FILENAME} not found.")
+                     print("No easter eggs found. Falling back to Timeform.")
 
-            # If it's a regular cycle (odd) or special image missing, generate Timeform
+            # If not easter egg or easter egg failed, generate Timeform
             if not image_path:
                 # Run the async image generation
                 image_path = asyncio.run(generate_timeform_image())
