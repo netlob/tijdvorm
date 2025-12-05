@@ -7,6 +7,8 @@ import time
 import random
 import requests
 import logging
+import platform
+import subprocess
 
 from samsungtvws import SamsungTVWS
 
@@ -372,6 +374,15 @@ def get_random_easter_egg():
 
 # --- Samsung TV Interaction (Synchronous) ---
 
+def is_tv_reachable(ip):
+    """Pings the TV to check if it is reachable."""
+    param = '-n' if platform.system().lower() == 'windows' else '-c'
+    command = ['ping', param, '1', ip]
+    try:
+        return subprocess.call(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) == 0
+    except Exception:
+        return False
+
 def connect_to_tv(tv_ip):
     """Connects to TV, uploads image, cleans old, selects new."""
     print(f"Connecting to TV...")
@@ -453,10 +464,24 @@ def main_loop(tv_ip, interval_minutes):
     """Runs the image generation and TV update periodically."""
     logging.basicConfig(level=logging.INFO)
     print(f"Starting main loop. TV IP: {tv_ip}, Update Interval: {interval_minutes} minutes.")
-    tv = connect_to_tv(tv_ip)
+    
+    # Check reachability before initial connection
+    if not is_tv_reachable(tv_ip):
+         print(f"TV at {tv_ip} is initially unreachable. It will be checked in the loop.")
+         tv = False
+    else:
+         tv = connect_to_tv(tv_ip)
+
     iteration = 1
     while True:
-        if iteration % 10 == 0:
+        # Check if TV is reachable
+        if not is_tv_reachable(tv_ip):
+            print(f"\n===== TV at {tv_ip} is unreachable (Ping failed). =====")
+            print(f"Sleeping for 10 seconds before retrying...")
+            time.sleep(10)
+            continue
+
+        if iteration % 10 == 0 or tv is False:
             print("Reconnecting to TV...")
             tv = connect_to_tv(tv_ip)
 
