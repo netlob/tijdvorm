@@ -9,6 +9,7 @@ import requests
 import logging
 import platform
 import subprocess
+import json
 
 from samsungtvws import SamsungTVWS
 
@@ -31,6 +32,7 @@ OUTPUT_WIDTH = 1080
 OUTPUT_HEIGHT = 1920
 OUTPUT_FILENAME = "timeform_art.png"
 EASTER_EGGS_DIR = "./eastereggs"
+EASTER_EGGS_MANIFEST = os.path.join(EASTER_EGGS_DIR, "manifest.json")
 
 # Playwright Timing
 PAGE_LOAD_TIMEOUT = 90000
@@ -356,17 +358,46 @@ def prepare_rotated_image(source_path):
         return None
 
 def get_random_easter_egg():
-    """Selects a random image from the easter eggs directory."""
+    """Selects a random ENABLED image from the easter eggs directory."""
     if not os.path.exists(EASTER_EGGS_DIR):
         return None
-    
+
+    enabled_from_manifest = None
+    try:
+        if os.path.exists(EASTER_EGGS_MANIFEST):
+            with open(EASTER_EGGS_MANIFEST, "r", encoding="utf-8") as f:
+                manifest = json.load(f)
+            images = manifest.get("images", {}) if isinstance(manifest, dict) else {}
+            if isinstance(images, dict):
+                enabled_from_manifest = [
+                    name
+                    for name, meta in images.items()
+                    if isinstance(meta, dict)
+                    and bool(meta.get("enabled", True))
+                    and isinstance(name, str)
+                ]
+    except Exception as e:
+        print(f"Warning: could not read manifest.json ({e}). Falling back to filesystem scan.")
+
     try:
         files = os.listdir(EASTER_EGGS_DIR)
-        images = [f for f in files if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
-        if not images:
+        files = [
+            f
+            for f in files
+            if f != "manifest.json"
+            and not f.startswith("rotated_")
+            and f.lower().endswith((".png", ".jpg", ".jpeg", ".webp"))
+        ]
+
+        if enabled_from_manifest is not None:
+            candidates = [f for f in files if f in set(enabled_from_manifest)]
+        else:
+            candidates = files
+
+        if not candidates:
             return None
-        
-        selected_image = random.choice(images)
+
+        selected_image = random.choice(candidates)
         return os.path.join(EASTER_EGGS_DIR, selected_image)
     except Exception as e:
         print(f"Error selecting random easter egg: {e}")
