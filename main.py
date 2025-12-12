@@ -386,15 +386,18 @@ def is_tv_reachable(ip):
 def connect_to_tv(tv_ip):
     """Connects to TV, uploads image, cleans old, selects new."""
     print(f"Connecting to TV...")
-    tv = SamsungTVWS(tv_ip)
+    try:
+        tv = SamsungTVWS(tv_ip)
 
-    # check if art mode is supported
-    art_info = tv.art().supported()
-    if art_info is True:
-        print("Connected.")
-        return tv
-    
-    return False
+        # check if art mode is supported
+        art_info = tv.art().supported()
+        if art_info is True:
+            print("Connected.")
+            return tv
+        return False
+    except Exception as e:
+        print(f"Failed to connect: {e}")
+        return False
 
 def update_tv_art(tv, image_path):
     """Connects to TV, uploads image, cleans old, selects new."""
@@ -470,7 +473,11 @@ def main_loop(tv_ip, interval_minutes):
          print(f"TV at {tv_ip} is initially unreachable. It will be checked in the loop.")
          tv = False
     else:
-         tv = connect_to_tv(tv_ip)
+        try:
+             tv = connect_to_tv(tv_ip)
+        except Exception as e:
+            print(f"Initial connection failed: {e}")
+            tv = False
 
     iteration = 1
     while True:
@@ -483,7 +490,13 @@ def main_loop(tv_ip, interval_minutes):
 
         if iteration % 10 == 0 or tv is False:
             print("Reconnecting to TV...")
-            tv = connect_to_tv(tv_ip)
+            try:
+                tv = connect_to_tv(tv_ip)
+            except Exception as e:
+                print(f"Connection failed even after successful ping: {e}")
+                tv = False
+                time.sleep(10)
+                continue
 
         print(f"\n===== {time.strftime('%Y-%m-%d %H:%M:%S')} - Running Update Cycle {iteration} ====")
         try:
