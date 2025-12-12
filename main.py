@@ -15,7 +15,7 @@ from samsungtvws import SamsungTVWS
 # --- Samsung TV Config ---
 TV_IP = "10.0.1.111" # !!! REPLACE WITH YOUR TV's IP ADDRESS !!!
 UPDATE_INTERVAL_MINUTES = 1
-DELETE_OLD_ART = False # turn on to always delete all manually uploaded art
+DELETE_OLD_ART = True # turn on to always delete all manually uploaded art
 # TODO: tag & only delete old "timefroms" art, not user uploaded art
 
 # --- Configuration Constants ---
