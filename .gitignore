@@ -177,3 +177,8 @@ cython_debug/
 .playwright/
 
 timeform_art.png
+
+frontend/node_modules/
+frontend/dist/
+frontend/build/
+frontend/.vite/
