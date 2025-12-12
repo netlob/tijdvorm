@@ -25,3 +25,36 @@ playwright install chromium --with-deps
    note that your TV must be on the same exact network as this host, VLANs are not allowed by samsung
    also note the `DELETE_OLD_ART` parameter, which will make sure the TV doesnt get overloaded with art images which are never deleted (by default 1 image every minute)
 3. run `python main.py`
+
+## eastereggs uploader (optional)
+
+You can manage `eastereggs/` from your phone (upload + enable/disable) with a tiny local web UI.
+
+### start everything (one command)
+
+```bash
+./start.sh
+```
+
+If you only want the uploader UI (no TV loop):
+
+```bash
+START_TV=0 ./start.sh
+```
+
+### backend (FastAPI)
+
+```bash
+pip install -r requirements-web.txt
+uvicorn server:app --host 0.0.0.0 --port 8000
+```
+
+### frontend (Svelte)
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open it on your phone (same Wi‑Fi): `http://<your-computer-ip>:5173`
