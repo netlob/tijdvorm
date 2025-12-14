@@ -33,6 +33,7 @@ OUTPUT_HEIGHT = 1920
 OUTPUT_FILENAME = "timeform_art.png"
 EASTER_EGGS_DIR = "./eastereggs"
 EASTER_EGGS_MANIFEST = os.path.join(EASTER_EGGS_DIR, "manifest.json")
+EASTER_EGGS_OVERRIDE = os.path.join(EASTER_EGGS_DIR, "override.json")
 
 # Playwright Timing
 PAGE_LOAD_TIMEOUT = 90000
@@ -362,6 +363,29 @@ def get_random_easter_egg():
     if not os.path.exists(EASTER_EGGS_DIR):
         return None
 
+
+def get_override_image_path():
+    """Returns absolute path to override image if set, otherwise None."""
+    try:
+        if not os.path.exists(EASTER_EGGS_OVERRIDE):
+            return None
+        with open(EASTER_EGGS_OVERRIDE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            return None
+        filename = data.get("filename")
+        if not filename or not isinstance(filename, str):
+            return None
+        filename = os.path.basename(filename)
+        candidate = os.path.join(EASTER_EGGS_DIR, filename)
+        if not os.path.exists(candidate):
+            print(f"Warning: override image not found on disk: {candidate}")
+            return None
+        return os.path.abspath(candidate)
+    except Exception as e:
+        print(f"Warning: could not read override.json ({e})")
+        return None
+
     enabled_from_manifest = None
     try:
         if os.path.exists(EASTER_EGGS_MANIFEST):
@@ -536,11 +560,17 @@ def main_loop(tv_ip, interval_minutes):
                 continue
 
             # Determine which image to show
+            override_path = get_override_image_path()
+            if override_path:
+                print(f"Override active: {override_path}")
+                image_path = prepare_rotated_image(override_path)
+            else:
+                image_path = None
+
             # 1 in 10 chance for an easter egg
             is_easter_egg = random.randint(1, 10) == 1
-            image_path = None
 
-            if is_easter_egg:
+            if (not image_path) and is_easter_egg:
                 print("It's Easter Egg time! (1/10 chance hit)")
                 egg_path = get_random_easter_egg()
                 if egg_path:

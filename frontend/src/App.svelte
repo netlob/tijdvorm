@@ -4,15 +4,19 @@
   let error = "";
   let uploading = false;
   let selectedFile = null;
+  let override = { filename: null, set_at: null };
+  let settingOverride = false;
 
   async function refresh() {
     loading = true;
     error = "";
     try {
-      const res = await fetch("/api/images");
-      if (!res.ok) throw new Error(await res.text());
-      const data = await res.json();
+      const [imagesRes, overrideRes] = await Promise.all([fetch("/api/images"), fetch("/api/override")]);
+      if (!imagesRes.ok) throw new Error(await imagesRes.text());
+      if (!overrideRes.ok) throw new Error(await overrideRes.text());
+      const data = await imagesRes.json();
       images = data.images ?? [];
+      override = await overrideRes.json();
     } catch (e) {
       error = e?.message ?? String(e);
     } finally {
@@ -66,6 +70,24 @@
     }
   }
 
+  async function setOverride(filenameOrNull) {
+    settingOverride = true;
+    error = "";
+    try {
+      const res = await fetch("/api/override", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filename: filenameOrNull })
+      });
+      if (!res.ok) throw new Error(await res.text());
+      await refresh();
+    } catch (e) {
+      error = e?.message ?? String(e);
+    } finally {
+      settingOverride = false;
+    }
+  }
+
   refresh();
 </script>
 
@@ -105,6 +127,26 @@
     <small class="muted">Tip: add more images by uploading multiple times.</small>
   </article>
 
+  <article class="card">
+    <h3>Override</h3>
+    {#if override?.filename}
+      <div class="row" style="align-items: center;">
+        <div class="row" style="gap: 0.75rem;">
+          <img class="thumb" alt={override.filename} src={override.url} />
+          <div>
+            <strong>Showing: {override.filename}</strong>
+            <div class="muted">{override.set_at ? `Set at: ${override.set_at}` : ""}</div>
+          </div>
+        </div>
+        <button class="secondary" on:click={() => setOverride(null)} disabled={settingOverride}>
+          {settingOverride ? "Clearing…" : "Clear override"}
+        </button>
+      </div>
+    {:else}
+      <div class="muted">No override set. Tap “Override” on an image below to force it to display until cleared.</div>
+    {/if}
+  </article>
+
   {#if loading}
     <p class="muted">Loading…</p>
   {:else}
@@ -123,6 +165,9 @@
             </div>
 
             <div style="display: flex; gap: 0.5rem; align-items: center;">
+              <button on:click={() => setOverride(img.filename)} disabled={settingOverride}>
+                {override?.filename === img.filename ? "Overriding" : "Override"}
+              </button>
               <label>
                 <input
                   type="checkbox"

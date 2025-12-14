@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 EASTER_EGGS_DIR = os.path.abspath("./eastereggs")
 MANIFEST_PATH = os.path.join(EASTER_EGGS_DIR, "manifest.json")
+OVERRIDE_PATH = os.path.join(EASTER_EGGS_DIR, "override.json")
 
 
 def _utc_now_iso() -> str:
@@ -58,6 +59,34 @@ def _save_manifest(manifest: dict[str, Any]) -> None:
     with open(tmp_path, "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2, sort_keys=True)
     os.replace(tmp_path, MANIFEST_PATH)
+
+def _load_override() -> dict[str, Any]:
+    _ensure_dirs()
+    if not os.path.exists(OVERRIDE_PATH):
+        return {"filename": None, "set_at": None}
+    try:
+        with open(OVERRIDE_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            return {"filename": None, "set_at": None}
+        filename = data.get("filename")
+        if filename is not None and not isinstance(filename, str):
+            filename = None
+        set_at = data.get("set_at")
+        if set_at is not None and not isinstance(set_at, str):
+            set_at = None
+        return {"filename": filename, "set_at": set_at}
+    except Exception:
+        return {"filename": None, "set_at": None}
+
+
+def _save_override(filename: str | None) -> None:
+    _ensure_dirs()
+    tmp_path = OVERRIDE_PATH + ".tmp"
+    payload = {"filename": filename, "set_at": _utc_now_iso() if filename else None}
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2, sort_keys=True)
+    os.replace(tmp_path, OVERRIDE_PATH)
 
 
 def _sync_manifest_files(manifest: dict[str, Any]) -> dict[str, Any]:
@@ -120,6 +149,46 @@ def list_images() -> dict[str, Any]:
         )
     out.sort(key=lambda x: x["filename"].lower())
     return {"images": out}
+
+@app.get("/api/override")
+def get_override() -> dict[str, Any]:
+    data = _load_override()
+    filename = data.get("filename")
+    if filename:
+        return {
+            "filename": filename,
+            "set_at": data.get("set_at"),
+            "url": f"/eastereggs/{filename}",
+        }
+    return {"filename": None, "set_at": None}
+
+
+@app.post("/api/override")
+def set_override(payload: dict[str, Any]) -> dict[str, Any]:
+    """
+    Body:
+      { "filename": "foo.png" } to set override
+      { "filename": null } to clear override
+    """
+    filename = payload.get("filename", None)
+    if filename is None:
+        _save_override(None)
+        return {"ok": True, "filename": None}
+
+    if not isinstance(filename, str):
+        raise HTTPException(status_code=400, detail="filename must be a string or null")
+
+    filename = _safe_filename(filename)
+    if not _is_allowed_image(filename):
+        raise HTTPException(status_code=400, detail="Unsupported file type")
+
+    # Must exist in folder to be selectable
+    path = os.path.join(EASTER_EGGS_DIR, filename)
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Image not found on disk")
+
+    _save_override(filename)
+    return {"ok": True, "filename": filename, "url": f"/eastereggs/{filename}"}
 
 
 @app.post("/api/upload")
