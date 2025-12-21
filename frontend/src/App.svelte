@@ -9,6 +9,24 @@
   let settings = { easter_egg_chance_denominator: 10 };
   let savingSettings = false;
 
+  const cls = (...parts) => parts.filter(Boolean).join(" ");
+
+  const ui = {
+    card: "rounded-lg border border-border bg-card text-card-foreground shadow-sm",
+    cardHeader: "px-4 pt-4 pb-2",
+    cardTitle: "text-base font-semibold leading-none tracking-tight",
+    cardDesc: "mt-1 text-sm text-muted-foreground",
+    cardContent: "px-4 pb-4",
+    button:
+      "inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 h-9 px-3",
+    buttonPrimary: "bg-primary text-primary-foreground hover:opacity-90",
+    buttonSecondary: "bg-secondary text-secondary-foreground hover:opacity-90",
+    buttonGhost: "hover:bg-accent hover:text-accent-foreground",
+    buttonDestructive: "bg-destructive text-destructive-foreground hover:opacity-90",
+    input:
+      "flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+  };
+
   async function refresh() {
     loading = true;
     error = "";
@@ -134,130 +152,200 @@
   refresh();
 </script>
 
-<main>
-  <header>
-    <hgroup>
-      <h1>tijdvorm – eastereggs</h1>
-      <p class="muted">Upload images + enable/disable which ones can show up (1 in 10 chance each minute).</p>
-    </hgroup>
-  </header>
-
-  {#if error}
-    <article class="card" style="border-color: var(--pico-del-color);">
-      <strong>Error</strong>
-      <div class="muted">{error}</div>
-    </article>
-  {/if}
-
-  <article class="card">
-    <h3>Upload</h3>
-    <div class="row" style="align-items: flex-end;">
-      <label style="flex: 1;">
-        Pick image
-        <input
-          type="file"
-          accept="image/png,image/jpeg,image/webp"
-          on:change={(e) => (selectedFile = e.currentTarget.files?.[0] ?? null)}
-        />
-      </label>
-      <button on:click={upload} disabled={!selectedFile || uploading}>
-        {uploading ? "Uploading…" : "Upload"}
-      </button>
-      <button class="secondary" on:click={refresh} disabled={loading}>
-        Refresh
-      </button>
-    </div>
-    <small class="muted">Tip: add more images by uploading multiple times.</small>
-  </article>
-
-  <article class="card">
-    <h3>Frequency</h3>
-    <div class="row" style="align-items: flex-end;">
-      <label style="flex: 1;">
-        Easter egg chance (1 in N)
-        <input
-          type="number"
-          min="0"
-          step="1"
-          value={settings?.easter_egg_chance_denominator ?? 10}
-          on:input={(e) => (settings = { ...settings, easter_egg_chance_denominator: Number(e.currentTarget.value) })}
-        />
-      </label>
-      <button on:click={saveSettings} disabled={savingSettings}>
-        {savingSettings ? "Saving…" : "Save"}
-      </button>
-    </div>
-    <small class="muted">
-      Set to <strong>0</strong> to disable easter eggs. Set to <strong>1</strong> to show an easter egg every minute.
-    </small>
-  </article>
-
-  <article class="card">
-    <h3>Override</h3>
-    {#if override?.filename}
-      <div class="row" style="align-items: center;">
-        <div class="row" style="gap: 0.75rem;">
-          <img class="thumb" alt={override.filename} src={override.url} />
-          <div>
-            <strong>Showing: {override.filename}</strong>
-            <div class="muted">{override.set_at ? `Set at: ${override.set_at}` : ""}</div>
-          </div>
+<main class="mx-auto w-full max-w-[960px] px-4 py-6 sm:px-6">
+  <div class="flex flex-col gap-6">
+    <header class="space-y-1">
+      <div class="flex items-start justify-between gap-4">
+        <div class="space-y-1">
+          <h1 class="text-xl font-semibold tracking-tight sm:text-2xl">tijdvorm</h1>
+          <p class="text-sm text-muted-foreground">Eastereggs manager (mobile-friendly)</p>
         </div>
-        <button class="secondary" on:click={() => setOverride(null)} disabled={settingOverride}>
-          {settingOverride ? "Clearing…" : "Clear override"}
+        <button class={cls(ui.button, ui.buttonSecondary)} on:click={refresh} disabled={loading}>
+          Refresh
         </button>
       </div>
-    {:else}
-      <div class="muted">No override set. Tap “Override” on an image below to force it to display until cleared.</div>
-    {/if}
-  </article>
+    </header>
 
-  {#if loading}
-    <p class="muted">Loading…</p>
-  {:else}
-    <div class="grid">
-      {#each images as img (img.filename)}
-        <article class="card">
-          <div class="row" style="align-items: flex-start;">
-            <div class="row" style="gap: 0.75rem; align-items: flex-start;">
-              <img class="thumb" alt={img.filename} src={img.url} />
-              <div>
-                <strong>{img.filename}</strong>
-                <div class="muted">
-                  {img.uploaded_at ? `Uploaded: ${img.uploaded_at}` : "Existing file"}
+    {#if error}
+      <div class={cls(ui.card, "border-destructive/50")}>
+        <div class={ui.cardHeader}>
+          <div class={ui.cardTitle}>Error</div>
+          <div class={ui.cardDesc}>{error}</div>
+        </div>
+      </div>
+    {/if}
+
+    <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
+      <!-- Upload -->
+      <section class={cls(ui.card, "lg:col-span-1")}>
+        <div class={ui.cardHeader}>
+          <div class={ui.cardTitle}>Upload</div>
+          <div class={ui.cardDesc}>Add new images to the pool.</div>
+        </div>
+        <div class={ui.cardContent}>
+          <div class="flex flex-col gap-3">
+            <input
+              class={ui.input}
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              on:change={(e) => (selectedFile = e.currentTarget.files?.[0] ?? null)}
+            />
+            <button class={cls(ui.button, ui.buttonPrimary)} on:click={upload} disabled={!selectedFile || uploading}>
+              {uploading ? "Uploading…" : "Upload"}
+            </button>
+            <p class="text-xs text-muted-foreground">
+              Tip: upload multiple times. Images can be enabled/disabled below.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Frequency -->
+      <section class={cls(ui.card, "lg:col-span-1")}>
+        <div class={ui.cardHeader}>
+          <div class={ui.cardTitle}>Frequency</div>
+          <div class={ui.cardDesc}>Controls how often an easter egg shows up.</div>
+        </div>
+        <div class={ui.cardContent}>
+          <div class="flex flex-col gap-3">
+            <label class="space-y-1">
+              <div class="text-sm font-medium">Chance (1 in N)</div>
+              <input
+                class={ui.input}
+                type="number"
+                min="0"
+                step="1"
+                value={settings?.easter_egg_chance_denominator ?? 10}
+                on:input={(e) =>
+                  (settings = { ...settings, easter_egg_chance_denominator: Number(e.currentTarget.value) })}
+              />
+            </label>
+            <button class={cls(ui.button, ui.buttonPrimary)} on:click={saveSettings} disabled={savingSettings}>
+              {savingSettings ? "Saving…" : "Save"}
+            </button>
+            <p class="text-xs text-muted-foreground">0 = never. 1 = every minute. 10 = ~10% chance.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Override -->
+      <section class={cls(ui.card, "lg:col-span-1")}>
+        <div class={ui.cardHeader}>
+          <div class={ui.cardTitle}>Override</div>
+          <div class={ui.cardDesc}>Force a specific image to show until cleared.</div>
+        </div>
+        <div class={ui.cardContent}>
+          {#if override?.filename}
+            <div class="flex items-center gap-3">
+              <img
+                class="h-12 w-12 shrink-0 rounded-md border border-border object-cover"
+                alt={override.filename}
+                src={override.url}
+              />
+              <div class="min-w-0 flex-1">
+                <div class="truncate text-sm font-medium">{override.filename}</div>
+                <div class="truncate text-xs text-muted-foreground">{override.set_at ? override.set_at : ""}</div>
+              </div>
+              <button
+                class={cls(ui.button, ui.buttonSecondary)}
+                on:click={() => setOverride(null)}
+                disabled={settingOverride}
+              >
+                {settingOverride ? "Clearing…" : "Clear"}
+              </button>
+            </div>
+          {:else}
+            <div class="text-sm text-muted-foreground">No override set.</div>
+          {/if}
+        </div>
+      </section>
+    </div>
+
+    <!-- Images -->
+    <section class="space-y-3">
+      <div class="flex items-center justify-between">
+        <h2 class="text-base font-semibold">Images</h2>
+        <div class="text-xs text-muted-foreground">{images.length} total</div>
+      </div>
+
+      {#if loading}
+        <div class="text-sm text-muted-foreground">Loading…</div>
+      {:else}
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {#each images as img (img.filename)}
+            <article class={ui.card}>
+              <div class="flex gap-3 p-3">
+                <img
+                  class="h-16 w-16 shrink-0 rounded-md border border-border object-cover"
+                  alt={img.filename}
+                  src={img.url}
+                  loading="lazy"
+                />
+                <div class="min-w-0 flex-1">
+                  <div class="truncate text-sm font-medium">{img.filename}</div>
+                  <div class="truncate text-xs text-muted-foreground">
+                    {img.uploaded_at ? `Uploaded: ${img.uploaded_at}` : "Existing file"}
+                  </div>
+
+                  <div class="mt-3 flex flex-wrap items-center gap-2">
+                    <button
+                      class={cls(ui.button, override?.filename === img.filename ? ui.buttonSecondary : ui.buttonPrimary)}
+                      on:click={() => setOverride(img.filename)}
+                      disabled={settingOverride}
+                    >
+                      {override?.filename === img.filename ? "Overriding" : "Override"}
+                    </button>
+
+                    <!-- Enabled switch -->
+                    <label class="flex items-center gap-2 text-xs">
+                      <span class="text-muted-foreground">Enabled</span>
+                      <span class="relative inline-flex h-5 w-9 items-center">
+                        <input
+                          class="peer sr-only"
+                          type="checkbox"
+                          checked={img.enabled}
+                          on:change={(e) => setEnabled(img.filename, e.currentTarget.checked)}
+                        />
+                        <span
+                          class="h-5 w-9 rounded-full bg-muted transition-colors peer-checked:bg-primary peer-focus-visible:ring-2 peer-focus-visible:ring-ring"
+                        ></span>
+                        <span
+                          class="pointer-events-none absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-background shadow transition-transform peer-checked:translate-x-4"
+                        ></span>
+                      </span>
+                    </label>
+
+                    <!-- Explicit switch -->
+                    <label class="flex items-center gap-2 text-xs">
+                      <span class="text-muted-foreground">Explicit</span>
+                      <span class="relative inline-flex h-5 w-9 items-center">
+                        <input
+                          class="peer sr-only"
+                          type="checkbox"
+                          checked={img.explicit}
+                          on:change={(e) => setExplicit(img.filename, e.currentTarget.checked)}
+                        />
+                        <span
+                          class="h-5 w-9 rounded-full bg-muted transition-colors peer-checked:bg-primary peer-focus-visible:ring-2 peer-focus-visible:ring-ring"
+                        ></span>
+                        <span
+                          class="pointer-events-none absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-background shadow transition-transform peer-checked:translate-x-4"
+                        ></span>
+                      </span>
+                    </label>
+
+                    <button class={cls(ui.button, ui.buttonDestructive)} on:click={() => removeImage(img.filename)}>
+                      Delete
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
-
-            <div style="display: flex; gap: 0.5rem; align-items: center;">
-              <button on:click={() => setOverride(img.filename)} disabled={settingOverride}>
-                {override?.filename === img.filename ? "Overriding" : "Override"}
-              </button>
-              <label>
-                <input
-                  type="checkbox"
-                  role="switch"
-                  checked={img.enabled}
-                  on:change={(e) => setEnabled(img.filename, e.currentTarget.checked)}
-                />
-                Enabled
-              </label>
-              <label>
-                <input
-                  type="checkbox"
-                  role="switch"
-                  checked={img.explicit}
-                  on:change={(e) => setExplicit(img.filename, e.currentTarget.checked)}
-                />
-                Explicit
-              </label>
-              <button class="secondary" on:click={() => removeImage(img.filename)}>Delete</button>
-            </div>
-          </div>
-        </article>
-      {/each}
-    </div>
-  {/if}
+            </article>
+          {/each}
+        </div>
+      {/if}
+    </section>
+  </div>
 </main>
 
 
