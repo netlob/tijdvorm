@@ -58,3 +58,13 @@ npm run dev
 ```
 
 Open it on your phone (same Wi‑Fi): `http://<your-computer-ip>:5173`
+
+### explicit filtering (Home Assistant)
+
+Each uploaded image can be marked **Explicit** in the web UI.
+When it’s “easter egg time”, `main.py` will **filter out explicit images** unless your Home Assistant boolean is ON.
+
+Create a `.env` in the repo root (you can copy `env.example`) and set:
+- `HA_BASE_URL` (e.g. `https://ha.netlob.casa`)
+- `HA_TOKEN` (long-lived access token)
+- `HA_EXPLICIT_ENTITY` (default: `input_boolean.explicit_frame_art`)

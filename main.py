@@ -34,6 +34,14 @@ OUTPUT_FILENAME = "timeform_art.png"
 EASTER_EGGS_DIR = "./eastereggs"
 EASTER_EGGS_MANIFEST = os.path.join(EASTER_EGGS_DIR, "manifest.json")
 EASTER_EGGS_OVERRIDE = os.path.join(EASTER_EGGS_DIR, "override.json")
+EASTER_EGGS_SETTINGS = os.path.join(EASTER_EGGS_DIR, "settings.json")
+
+# Home Assistant explicit toggle (read at easter-egg time)
+HA_EXPLICIT_ENTITY = os.environ.get("HA_EXPLICIT_ENTITY", "input_boolean.explicit_frame_art")
+HA_BASE_URL = os.environ.get("HA_BASE_URL", "").rstrip("/")  # e.g. https://ha.example.com
+HA_TOKEN = os.environ.get("HA_TOKEN", "")
+HA_TIMEOUT_SECONDS = float(os.environ.get("HA_TIMEOUT_SECONDS", "2.0"))
+HA_CACHE_TTL_SECONDS = float(os.environ.get("HA_CACHE_TTL_SECONDS", "30.0"))
 
 # Playwright Timing
 PAGE_LOAD_TIMEOUT = 90000
@@ -427,6 +435,134 @@ def get_override_image_path():
         print(f"Error selecting random easter egg: {e}")
         return None
 
+def _load_easter_egg_settings():
+    """Returns settings dict. If missing/invalid, returns defaults."""
+    defaults = {"easter_egg_chance_denominator": 10}
+    try:
+        if not os.path.exists(EASTER_EGGS_SETTINGS):
+            return defaults
+        with open(EASTER_EGGS_SETTINGS, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            return defaults
+        denom = data.get("easter_egg_chance_denominator", defaults["easter_egg_chance_denominator"])
+        try:
+            denom = int(denom)
+        except Exception:
+            denom = defaults["easter_egg_chance_denominator"]
+        if denom < 0:
+            denom = 0
+        return {"easter_egg_chance_denominator": denom}
+    except Exception as e:
+        print(f"Warning: could not read settings.json ({e})")
+        return defaults
+
+
+_ha_cache = {"value": None, "ts": 0.0}
+
+
+def _ha_explicit_allowed():
+    """Returns True if HA explicit boolean is on; False otherwise. Cached for HA_CACHE_TTL_SECONDS."""
+    now = time.time()
+    if _ha_cache["value"] is not None and (now - _ha_cache["ts"]) < HA_CACHE_TTL_SECONDS:
+        return bool(_ha_cache["value"])
+
+    if not HA_BASE_URL or not HA_TOKEN:
+        # Not configured -> default to False (safe)
+        _ha_cache["value"] = False
+        _ha_cache["ts"] = now
+        return False
+
+    url = f"{HA_BASE_URL}/api/states/{HA_EXPLICIT_ENTITY}"
+    try:
+        resp = requests.get(
+            url,
+            headers={"Authorization": f"Bearer {HA_TOKEN}", "Content-Type": "application/json"},
+            timeout=HA_TIMEOUT_SECONDS,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        state = data.get("state")
+        allowed = str(state).lower() == "on"
+        _ha_cache["value"] = allowed
+        _ha_cache["ts"] = now
+        return allowed
+    except Exception as e:
+        print(f"Warning: HA explicit check failed ({e}); treating as OFF")
+        # If we had a cached value, keep it; else default False
+        if _ha_cache["value"] is None:
+            _ha_cache["value"] = False
+            _ha_cache["ts"] = now
+        return bool(_ha_cache["value"])
+
+
+def _get_enabled_easter_egg_candidates():
+    """Returns (files_on_disk, enabled_set, explicit_set)."""
+    files = []
+    try:
+        files = os.listdir(EASTER_EGGS_DIR)
+        files = [
+            f
+            for f in files
+            if f != "manifest.json"
+            and f != "override.json"
+            and f != "settings.json"
+            and not f.startswith("rotated_")
+            and f.lower().endswith((".png", ".jpg", ".jpeg", ".webp"))
+        ]
+    except Exception:
+        files = []
+
+    enabled_set = None
+    explicit_set = set()
+    try:
+        if os.path.exists(EASTER_EGGS_MANIFEST):
+            with open(EASTER_EGGS_MANIFEST, "r", encoding="utf-8") as f:
+                manifest = json.load(f)
+            images = manifest.get("images", {}) if isinstance(manifest, dict) else {}
+            if isinstance(images, dict):
+                enabled = []
+                for name, meta in images.items():
+                    if not isinstance(name, str) or not isinstance(meta, dict):
+                        continue
+                    if bool(meta.get("enabled", True)):
+                        enabled.append(name)
+                    if bool(meta.get("explicit", False)):
+                        explicit_set.add(name)
+                enabled_set = set(enabled)
+    except Exception as e:
+        print(f"Warning: could not read manifest.json for explicit filtering ({e})")
+
+    return files, enabled_set, explicit_set
+
+
+def get_random_easter_egg_filtered():
+    """
+    Picks a random enabled image from eastereggs/, filtering explicit images
+    if Home Assistant explicit boolean is OFF.
+    """
+    if not os.path.exists(EASTER_EGGS_DIR):
+        return None
+
+    files, enabled_set, explicit_set = _get_enabled_easter_egg_candidates()
+    if enabled_set is not None:
+        candidates = [f for f in files if f in enabled_set]
+    else:
+        candidates = files
+
+    if not candidates:
+        return None
+
+    allow_explicit = _ha_explicit_allowed()
+    if not allow_explicit:
+        candidates = [f for f in candidates if f not in explicit_set]
+
+    if not candidates:
+        return None
+
+    selected_image = random.choice(candidates)
+    return os.path.join(EASTER_EGGS_DIR, selected_image)
+
 # --- Samsung TV Interaction (Synchronous) ---
 
 def is_tv_reachable(ip):
@@ -567,12 +703,20 @@ def main_loop(tv_ip, interval_minutes):
             else:
                 image_path = None
 
-            # 1 in 10 chance for an easter egg
-            is_easter_egg = random.randint(1, 10) == 1
+            # Easter egg frequency: 1 in N chance (configured via eastereggs/settings.json)
+            settings = _load_easter_egg_settings()
+            denom = int(settings.get("easter_egg_chance_denominator", 10))
+            is_easter_egg = False
+            if denom <= 0:
+                is_easter_egg = False
+            elif denom == 1:
+                is_easter_egg = True
+            else:
+                is_easter_egg = random.randint(1, denom) == 1
 
             if (not image_path) and is_easter_egg:
-                print("It's Easter Egg time! (1/10 chance hit)")
-                egg_path = get_random_easter_egg()
+                print(f\"It's Easter Egg time! (1/{denom} chance hit)\")
+                egg_path = get_random_easter_egg_filtered()
                 if egg_path:
                      print(f"Selected easter egg: {egg_path}")
                      image_path = prepare_rotated_image(egg_path)

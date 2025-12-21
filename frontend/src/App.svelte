@@ -6,17 +6,25 @@
   let selectedFile = null;
   let override = { filename: null, set_at: null };
   let settingOverride = false;
+  let settings = { easter_egg_chance_denominator: 10 };
+  let savingSettings = false;
 
   async function refresh() {
     loading = true;
     error = "";
     try {
-      const [imagesRes, overrideRes] = await Promise.all([fetch("/api/images"), fetch("/api/override")]);
+      const [imagesRes, overrideRes, settingsRes] = await Promise.all([
+        fetch("/api/images"),
+        fetch("/api/override"),
+        fetch("/api/settings")
+      ]);
       if (!imagesRes.ok) throw new Error(await imagesRes.text());
       if (!overrideRes.ok) throw new Error(await overrideRes.text());
+      if (!settingsRes.ok) throw new Error(await settingsRes.text());
       const data = await imagesRes.json();
       images = data.images ?? [];
       override = await overrideRes.json();
+      settings = await settingsRes.json();
     } catch (e) {
       error = e?.message ?? String(e);
     } finally {
@@ -58,6 +66,22 @@
     }
   }
 
+  async function setExplicit(filename, explicit) {
+    error = "";
+    try {
+      const res = await fetch(`/api/images/${encodeURIComponent(filename)}/explicit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ explicit })
+      });
+      if (!res.ok) throw new Error(await res.text());
+      images = images.map((img) => (img.filename === filename ? { ...img, explicit } : img));
+    } catch (e) {
+      error = e?.message ?? String(e);
+      await refresh();
+    }
+  }
+
   async function removeImage(filename) {
     if (!confirm(`Delete ${filename}?`)) return;
     error = "";
@@ -85,6 +109,25 @@
       error = e?.message ?? String(e);
     } finally {
       settingOverride = false;
+    }
+  }
+
+  async function saveSettings() {
+    savingSettings = true;
+    error = "";
+    try {
+      const denom = Number(settings.easter_egg_chance_denominator);
+      const res = await fetch("/api/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ easter_egg_chance_denominator: denom })
+      });
+      if (!res.ok) throw new Error(await res.text());
+      await refresh();
+    } catch (e) {
+      error = e?.message ?? String(e);
+    } finally {
+      savingSettings = false;
     }
   }
 
@@ -125,6 +168,28 @@
       </button>
     </div>
     <small class="muted">Tip: add more images by uploading multiple times.</small>
+  </article>
+
+  <article class="card">
+    <h3>Frequency</h3>
+    <div class="row" style="align-items: flex-end;">
+      <label style="flex: 1;">
+        Easter egg chance (1 in N)
+        <input
+          type="number"
+          min="0"
+          step="1"
+          value={settings?.easter_egg_chance_denominator ?? 10}
+          on:input={(e) => (settings = { ...settings, easter_egg_chance_denominator: Number(e.currentTarget.value) })}
+        />
+      </label>
+      <button on:click={saveSettings} disabled={savingSettings}>
+        {savingSettings ? "Saving…" : "Save"}
+      </button>
+    </div>
+    <small class="muted">
+      Set to <strong>0</strong> to disable easter eggs. Set to <strong>1</strong> to show an easter egg every minute.
+    </small>
   </article>
 
   <article class="card">
@@ -176,6 +241,15 @@
                   on:change={(e) => setEnabled(img.filename, e.currentTarget.checked)}
                 />
                 Enabled
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  role="switch"
+                  checked={img.explicit}
+                  on:change={(e) => setExplicit(img.filename, e.currentTarget.checked)}
+                />
+                Explicit
               </label>
               <button class="secondary" on:click={() => removeImage(img.filename)}>Delete</button>
             </div>
