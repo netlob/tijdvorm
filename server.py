@@ -13,6 +13,7 @@ EASTER_EGGS_DIR = os.path.abspath("./eastereggs")
 MANIFEST_PATH = os.path.join(EASTER_EGGS_DIR, "manifest.json")
 OVERRIDE_PATH = os.path.join(EASTER_EGGS_DIR, "override.json")
 SETTINGS_PATH = os.path.join(EASTER_EGGS_DIR, "settings.json")
+TRIGGER_PATH = os.path.join(EASTER_EGGS_DIR, "trigger.json")
 
 DEFAULT_SETTINGS: dict[str, Any] = {
     # 1 in N chance per cycle. Set to 0 to disable easter eggs.
@@ -117,6 +118,14 @@ def _save_override(filename: str | None) -> None:
         json.dump(payload, f, indent=2, sort_keys=True)
     os.replace(tmp_path, OVERRIDE_PATH)
 
+def _save_trigger(reason: str) -> None:
+    _ensure_dirs()
+    tmp_path = TRIGGER_PATH + ".tmp"
+    payload = {"reason": reason, "ts": _utc_now_iso()}
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2, sort_keys=True)
+    os.replace(tmp_path, TRIGGER_PATH)
+
 
 def _sync_manifest_files(manifest: dict[str, Any]) -> dict[str, Any]:
     """Ensure all files in eastereggs exist in manifest; keep manifest entries even if missing."""
@@ -208,6 +217,7 @@ def set_override(payload: dict[str, Any]) -> dict[str, Any]:
     filename = payload.get("filename", None)
     if filename is None:
         _save_override(None)
+        _save_trigger("override_cleared")
         return {"ok": True, "filename": None}
 
     if not isinstance(filename, str):
@@ -223,6 +233,7 @@ def set_override(payload: dict[str, Any]) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="Image not found on disk")
 
     _save_override(filename)
+    _save_trigger("override_set")
     return {"ok": True, "filename": filename, "url": f"/eastereggs/{filename}"}
 
 

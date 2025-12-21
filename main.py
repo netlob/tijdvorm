@@ -35,6 +35,7 @@ EASTER_EGGS_DIR = "./eastereggs"
 EASTER_EGGS_MANIFEST = os.path.join(EASTER_EGGS_DIR, "manifest.json")
 EASTER_EGGS_OVERRIDE = os.path.join(EASTER_EGGS_DIR, "override.json")
 EASTER_EGGS_SETTINGS = os.path.join(EASTER_EGGS_DIR, "settings.json")
+EASTER_EGGS_TRIGGER = os.path.join(EASTER_EGGS_DIR, "trigger.json")
 
 # Home Assistant explicit toggle (read at easter-egg time)
 HA_EXPLICIT_ENTITY = os.environ.get("HA_EXPLICIT_ENTITY", "input_boolean.explicit_frame_art")
@@ -394,6 +395,49 @@ def get_override_image_path():
         print(f"Warning: could not read override.json ({e})")
         return None
 
+def _read_trigger_token():
+    """
+    Returns a token representing the latest trigger event, or None if missing.
+    Token is based on trigger.json's 'ts' field (or file mtime fallback).
+    """
+    try:
+        if not os.path.exists(EASTER_EGGS_TRIGGER):
+            return None
+        try:
+            with open(EASTER_EGGS_TRIGGER, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict) and isinstance(data.get("ts"), str):
+                return data["ts"]
+        except Exception:
+            pass
+        return str(os.path.getmtime(EASTER_EGGS_TRIGGER))
+    except Exception:
+        return None
+
+
+def _sleep_until_next_minute_or_trigger(interval_minutes, last_trigger_token):
+    """
+    Sleeps until the next minute boundary (based on interval_minutes), but wakes early if trigger.json changes.
+    Returns (woke_for_trigger: bool, new_trigger_token: str|None).
+    """
+    current_time = time.time()
+    seconds_past_minute = current_time % 60
+    sleep_seconds = (interval_minutes * 60) - seconds_past_minute
+    if sleep_seconds == 0:
+        sleep_seconds = (interval_minutes * 60) - 1
+
+    end_time = time.time() + sleep_seconds
+    while True:
+        remaining = end_time - time.time()
+        if remaining <= 0:
+            return (False, last_trigger_token)
+
+        # Sleep in short chunks so override/trigger can wake us quickly.
+        time.sleep(min(1.0, remaining))
+        token = _read_trigger_token()
+        if token and token != last_trigger_token:
+            return (True, token)
+
     enabled_from_manifest = None
     try:
         if os.path.exists(EASTER_EGGS_MANIFEST):
@@ -671,6 +715,7 @@ def main_loop(tv_ip, interval_minutes):
             tv = False
 
     iteration = 1
+    last_trigger_token = _read_trigger_token()
     while True:
         # Check if TV is reachable
         if not is_tv_reachable(tv_ip):
@@ -688,6 +733,12 @@ def main_loop(tv_ip, interval_minutes):
                 tv = False
                 time.sleep(10)
                 continue
+
+        # Wakeup trigger from the web UI (override set/cleared)
+        token = _read_trigger_token()
+        if token and token != last_trigger_token:
+            print(f"\n===== Trigger received (web UI). Running an immediate update. =====")
+            last_trigger_token = token
 
         print(f"\n===== {time.strftime('%Y-%m-%d %H:%M:%S')} - Running Update Cycle {iteration} ====")
         try:
@@ -737,15 +788,13 @@ def main_loop(tv_ip, interval_minutes):
         except Exception as e:
             print(f"Error in main loop cycle: {e}")
 
-        # Calculate seconds until the next minute
-        current_time = time.time()
-        seconds_past_minute = current_time % 60
-        sleep_seconds = (interval_minutes * 60) - seconds_past_minute
-        if sleep_seconds == 0: # Avoid 0 sleep if exactly on the minute
-            sleep_seconds = (interval_minutes * 60) - 1
-
-        print(f"===== Cycle finished. Sleeping for {sleep_seconds:.2f} seconds until next minute... ====")
-        time.sleep(sleep_seconds)
+        # Sleep until next minute, but wake early if the web UI triggers an immediate update
+        print("===== Cycle finished. Sleeping until next minute (wakes early on override trigger)... ====")
+        woke_for_trigger, new_token = _sleep_until_next_minute_or_trigger(interval_minutes, last_trigger_token)
+        if woke_for_trigger:
+            last_trigger_token = new_token
+            print("===== Woke early due to trigger. =====")
+            # Loop continues immediately (next cycle runs now)
         iteration += 1
 
 if __name__ == "__main__":
