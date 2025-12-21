@@ -766,7 +766,7 @@ def main_loop(tv_ip, interval_minutes):
                 is_easter_egg = random.randint(1, denom) == 1
 
             if (not image_path) and is_easter_egg:
-                print(f\"It's Easter Egg time! (1/{denom} chance hit)\")
+                print(f"It's Easter Egg time! (1/{denom} chance hit)")
                 egg_path = get_random_easter_egg_filtered()
                 if egg_path:
                      print(f"Selected easter egg: {egg_path}")
