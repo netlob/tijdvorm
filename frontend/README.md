@@ -16,6 +16,16 @@ npm install
 npm run dev
 ```
 
+### Point the frontend at your homelab API (optional)
+
+By default the frontend will call the Python API at `http://mini.netlob:8000` (CORS is enabled in the API).
+
+If your API is on a different host/port:
+
+- Create `frontend/.env.local`
+- Set:
+  - `VITE_API_HOST=http://mini.netlob:8000` (or whatever you use)
+
 Then open the UI:
 - From your laptop: `http://localhost:5173`
 - From your phone (same network): `http://<your-computer-ip>:5173`

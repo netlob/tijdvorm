@@ -10,6 +10,7 @@ import logging
 import platform
 import subprocess
 import json
+from datetime import datetime, timezone
 
 from samsungtvws import SamsungTVWS
 
@@ -35,7 +36,10 @@ EASTER_EGGS_DIR = "./eastereggs"
 EASTER_EGGS_MANIFEST = os.path.join(EASTER_EGGS_DIR, "manifest.json")
 EASTER_EGGS_OVERRIDE = os.path.join(EASTER_EGGS_DIR, "override.json")
 EASTER_EGGS_SETTINGS = os.path.join(EASTER_EGGS_DIR, "settings.json")
-EASTER_EGGS_TRIGGER = os.path.join(EASTER_EGGS_DIR, "trigger.json")
+
+LIVE_DIR = "./live"
+LIVE_PREVIEW_FILENAME = "preview.png"
+LIVE_STATE_FILENAME = "state.json"
 
 # Home Assistant explicit toggle (read at easter-egg time)
 HA_EXPLICIT_ENTITY = os.environ.get("HA_EXPLICIT_ENTITY", "input_boolean.explicit_frame_art")
@@ -395,49 +399,6 @@ def get_override_image_path():
         print(f"Warning: could not read override.json ({e})")
         return None
 
-def _read_trigger_token():
-    """
-    Returns a token representing the latest trigger event, or None if missing.
-    Token is based on trigger.json's 'ts' field (or file mtime fallback).
-    """
-    try:
-        if not os.path.exists(EASTER_EGGS_TRIGGER):
-            return None
-        try:
-            with open(EASTER_EGGS_TRIGGER, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            if isinstance(data, dict) and isinstance(data.get("ts"), str):
-                return data["ts"]
-        except Exception:
-            pass
-        return str(os.path.getmtime(EASTER_EGGS_TRIGGER))
-    except Exception:
-        return None
-
-
-def _sleep_until_next_minute_or_trigger(interval_minutes, last_trigger_token):
-    """
-    Sleeps until the next minute boundary (based on interval_minutes), but wakes early if trigger.json changes.
-    Returns (woke_for_trigger: bool, new_trigger_token: str|None).
-    """
-    current_time = time.time()
-    seconds_past_minute = current_time % 60
-    sleep_seconds = (interval_minutes * 60) - seconds_past_minute
-    if sleep_seconds == 0:
-        sleep_seconds = (interval_minutes * 60) - 1
-
-    end_time = time.time() + sleep_seconds
-    while True:
-        remaining = end_time - time.time()
-        if remaining <= 0:
-            return (False, last_trigger_token)
-
-        # Sleep in short chunks so override/trigger can wake us quickly.
-        time.sleep(min(1.0, remaining))
-        token = _read_trigger_token()
-        if token and token != last_trigger_token:
-            return (True, token)
-
     enabled_from_manifest = None
     try:
         if os.path.exists(EASTER_EGGS_MANIFEST):
@@ -541,7 +502,7 @@ def _ha_explicit_allowed():
 
 
 def _get_enabled_easter_egg_candidates():
-    """Returns (files_on_disk, enabled_set, explicit_set)."""
+    """Returns (files_on_disk, enabled_set, explicit_set, priority_map)."""
     files = []
     try:
         files = os.listdir(EASTER_EGGS_DIR)
@@ -559,6 +520,7 @@ def _get_enabled_easter_egg_candidates():
 
     enabled_set = None
     explicit_set = set()
+    priority_map = {}
     try:
         if os.path.exists(EASTER_EGGS_MANIFEST):
             with open(EASTER_EGGS_MANIFEST, "r", encoding="utf-8") as f:
@@ -573,11 +535,22 @@ def _get_enabled_easter_egg_candidates():
                         enabled.append(name)
                     if bool(meta.get("explicit", False)):
                         explicit_set.add(name)
+                    # priority 1..10 (higher = more likely)
+                    prio = meta.get("priority", 5)
+                    try:
+                        prio_i = int(prio)
+                    except Exception:
+                        prio_i = 5
+                    if prio_i < 1:
+                        prio_i = 1
+                    if prio_i > 10:
+                        prio_i = 10
+                    priority_map[name] = prio_i
                 enabled_set = set(enabled)
     except Exception as e:
         print(f"Warning: could not read manifest.json for explicit filtering ({e})")
 
-    return files, enabled_set, explicit_set
+    return files, enabled_set, explicit_set, priority_map
 
 
 def get_random_easter_egg_filtered():
@@ -588,7 +561,7 @@ def get_random_easter_egg_filtered():
     if not os.path.exists(EASTER_EGGS_DIR):
         return None
 
-    files, enabled_set, explicit_set = _get_enabled_easter_egg_candidates()
+    files, enabled_set, explicit_set, priority_map = _get_enabled_easter_egg_candidates()
     if enabled_set is not None:
         candidates = [f for f in files if f in enabled_set]
     else:
@@ -604,8 +577,40 @@ def get_random_easter_egg_filtered():
     if not candidates:
         return None
 
-    selected_image = random.choice(candidates)
+    weights = [max(1, int(priority_map.get(f, 5))) for f in candidates]
+    selected_image = random.choices(candidates, weights=weights, k=1)[0]
     return os.path.join(EASTER_EGGS_DIR, selected_image)
+
+
+def _write_live_preview(uploaded_image_path, meta):
+    """
+    Writes live/preview.png and live/state.json for the web UI.
+    `uploaded_image_path` should be the exact file pushed to the TV (so the preview matches the TV).
+    """
+    try:
+        os.makedirs(LIVE_DIR, exist_ok=True)
+        preview_path = os.path.join(LIVE_DIR, LIVE_PREVIEW_FILENAME)
+        state_path = os.path.join(LIVE_DIR, LIVE_STATE_FILENAME)
+
+        # Copy preview image (atomic replace)
+        tmp_preview = preview_path + ".tmp"
+        with open(uploaded_image_path, "rb") as src, open(tmp_preview, "wb") as dst:
+            dst.write(src.read())
+        os.replace(tmp_preview, preview_path)
+
+        # Write JSON state (atomic replace)
+        payload = {
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "type": meta.get("type"),
+            "filename": meta.get("filename"),
+            "url": "/live/preview.png",
+        }
+        tmp_state = state_path + ".tmp"
+        with open(tmp_state, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2, sort_keys=True)
+        os.replace(tmp_state, state_path)
+    except Exception as e:
+        print(f"Warning: failed to write live preview ({e})")
 
 # --- Samsung TV Interaction (Synchronous) ---
 
@@ -715,7 +720,6 @@ def main_loop(tv_ip, interval_minutes):
             tv = False
 
     iteration = 1
-    last_trigger_token = _read_trigger_token()
     while True:
         # Check if TV is reachable
         if not is_tv_reachable(tv_ip):
@@ -733,12 +737,6 @@ def main_loop(tv_ip, interval_minutes):
                 tv = False
                 time.sleep(10)
                 continue
-
-        # Wakeup trigger from the web UI (override set/cleared)
-        token = _read_trigger_token()
-        if token and token != last_trigger_token:
-            print(f"\n===== Trigger received (web UI). Running an immediate update. =====")
-            last_trigger_token = token
 
         print(f"\n===== {time.strftime('%Y-%m-%d %H:%M:%S')} - Running Update Cycle {iteration} ====")
         try:
@@ -766,11 +764,12 @@ def main_loop(tv_ip, interval_minutes):
                 is_easter_egg = random.randint(1, denom) == 1
 
             if (not image_path) and is_easter_egg:
-                print(f"It's Easter Egg time! (1/{denom} chance hit)")
+                print(f\"It's Easter Egg time! (1/{denom} chance hit)\")
                 egg_path = get_random_easter_egg_filtered()
                 if egg_path:
                      print(f"Selected easter egg: {egg_path}")
                      image_path = prepare_rotated_image(egg_path)
+                     live_meta = {"type": "easteregg", "filename": os.path.basename(egg_path)}
                 else:
                      print("No easter eggs found. Falling back to Timeform.")
 
@@ -778,23 +777,34 @@ def main_loop(tv_ip, interval_minutes):
             if not image_path:
                 # Run the async image generation
                 image_path = asyncio.run(generate_timeform_image())
+                live_meta = {"type": "timeform", "filename": os.path.basename(image_path) if image_path else None}
 
             if image_path:
                 # Run the synchronous TV update
-                update_tv_art(tv, image_path)
+                ok = update_tv_art(tv, image_path)
+                if ok:
+                    try:
+                        # If override was active, reflect that in live preview
+                        if override_path:
+                            live_meta = {"type": "override", "filename": os.path.basename(override_path)}
+                    except Exception:
+                        pass
+                    _write_live_preview(image_path, live_meta if "live_meta" in locals() else {"type": None, "filename": None})
             else:
                 print("Image generation/selection failed, skipping TV update.")
 
         except Exception as e:
             print(f"Error in main loop cycle: {e}")
 
-        # Sleep until next minute, but wake early if the web UI triggers an immediate update
-        print("===== Cycle finished. Sleeping until next minute (wakes early on override trigger)... ====")
-        woke_for_trigger, new_token = _sleep_until_next_minute_or_trigger(interval_minutes, last_trigger_token)
-        if woke_for_trigger:
-            last_trigger_token = new_token
-            print("===== Woke early due to trigger. =====")
-            # Loop continues immediately (next cycle runs now)
+        # Calculate seconds until the next minute
+        current_time = time.time()
+        seconds_past_minute = current_time % 60
+        sleep_seconds = (interval_minutes * 60) - seconds_past_minute
+        if sleep_seconds == 0: # Avoid 0 sleep if exactly on the minute
+            sleep_seconds = (interval_minutes * 60) - 1
+
+        print(f"===== Cycle finished. Sleeping for {sleep_seconds:.2f} seconds until next minute... ====")
+        time.sleep(sleep_seconds)
         iteration += 1
 
 if __name__ == "__main__":

@@ -13,7 +13,9 @@ EASTER_EGGS_DIR = os.path.abspath("./eastereggs")
 MANIFEST_PATH = os.path.join(EASTER_EGGS_DIR, "manifest.json")
 OVERRIDE_PATH = os.path.join(EASTER_EGGS_DIR, "override.json")
 SETTINGS_PATH = os.path.join(EASTER_EGGS_DIR, "settings.json")
-TRIGGER_PATH = os.path.join(EASTER_EGGS_DIR, "trigger.json")
+
+LIVE_DIR = os.path.abspath("./live")
+LIVE_STATE_PATH = os.path.join(LIVE_DIR, "state.json")
 
 DEFAULT_SETTINGS: dict[str, Any] = {
     # 1 in N chance per cycle. Set to 0 to disable easter eggs.
@@ -27,6 +29,7 @@ def _utc_now_iso() -> str:
 
 def _ensure_dirs() -> None:
     os.makedirs(EASTER_EGGS_DIR, exist_ok=True)
+    os.makedirs(LIVE_DIR, exist_ok=True)
 
 
 def _is_allowed_image(filename: str) -> bool:
@@ -118,14 +121,6 @@ def _save_override(filename: str | None) -> None:
         json.dump(payload, f, indent=2, sort_keys=True)
     os.replace(tmp_path, OVERRIDE_PATH)
 
-def _save_trigger(reason: str) -> None:
-    _ensure_dirs()
-    tmp_path = TRIGGER_PATH + ".tmp"
-    payload = {"reason": reason, "ts": _utc_now_iso()}
-    with open(tmp_path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2, sort_keys=True)
-    os.replace(tmp_path, TRIGGER_PATH)
-
 
 def _sync_manifest_files(manifest: dict[str, Any]) -> dict[str, Any]:
     """Ensure all files in eastereggs exist in manifest; keep manifest entries even if missing."""
@@ -144,12 +139,13 @@ def _sync_manifest_files(manifest: dict[str, Any]) -> dict[str, Any]:
         if not _is_allowed_image(f):
             continue
         if f not in images:
-            images[f] = {"enabled": True, "explicit": False, "uploaded_at": None}
+            images[f] = {"enabled": True, "explicit": False, "priority": 5, "uploaded_at": None}
         else:
             # Ensure new keys exist for older manifests
             if isinstance(images.get(f), dict):
                 images[f].setdefault("explicit", False)
                 images[f].setdefault("enabled", True)
+                images[f].setdefault("priority", 5)
 
     manifest["images"] = images
     return manifest
@@ -168,6 +164,7 @@ app.add_middleware(
 
 _ensure_dirs()
 app.mount("/eastereggs", StaticFiles(directory=EASTER_EGGS_DIR), name="eastereggs")
+app.mount("/live", StaticFiles(directory=LIVE_DIR), name="live")
 
 
 @app.get("/api/health")
@@ -182,11 +179,21 @@ def list_images() -> dict[str, Any]:
 
     out = []
     for filename, meta in manifest["images"].items():
+        prio = 5
+        try:
+            prio = int(meta.get("priority", 5))
+        except Exception:
+            prio = 5
+        if prio < 1:
+            prio = 1
+        if prio > 10:
+            prio = 10
         out.append(
             {
                 "filename": filename,
                 "enabled": bool(meta.get("enabled", True)),
                 "explicit": bool(meta.get("explicit", False)),
+                "priority": prio,
                 "uploaded_at": meta.get("uploaded_at"),
                 "url": f"/eastereggs/{filename}",
             }
@@ -217,7 +224,6 @@ def set_override(payload: dict[str, Any]) -> dict[str, Any]:
     filename = payload.get("filename", None)
     if filename is None:
         _save_override(None)
-        _save_trigger("override_cleared")
         return {"ok": True, "filename": None}
 
     if not isinstance(filename, str):
@@ -233,7 +239,6 @@ def set_override(payload: dict[str, Any]) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="Image not found on disk")
 
     _save_override(filename)
-    _save_trigger("override_set")
     return {"ok": True, "filename": filename, "url": f"/eastereggs/{filename}"}
 
 
@@ -261,7 +266,7 @@ async def upload_image(file: UploadFile = File(...)) -> dict[str, Any]:
 
     manifest = _load_manifest()
     images = manifest.setdefault("images", {})
-    images[filename] = {"enabled": True, "explicit": False, "uploaded_at": _utc_now_iso()}
+    images[filename] = {"enabled": True, "explicit": False, "priority": 5, "uploaded_at": _utc_now_iso()}
     _save_manifest(manifest)
 
     return {"ok": True, "filename": filename}
@@ -294,13 +299,84 @@ def set_explicit(filename: str, payload: dict[str, Any]) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="Image not found")
 
     if not isinstance(images[filename], dict):
-        images[filename] = {"enabled": True, "explicit": explicit, "uploaded_at": None}
+        images[filename] = {"enabled": True, "explicit": explicit, "priority": 5, "uploaded_at": None}
     else:
         images[filename]["explicit"] = explicit
 
     _save_manifest(manifest)
     return {"ok": True, "filename": filename, "explicit": explicit}
 
+
+@app.post("/api/images/{filename}/priority")
+def set_priority(filename: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """
+    Body:
+      { "priority": 1..10 }
+    Higher = more likely to show up when it's easter-egg time.
+    """
+    filename = _safe_filename(filename)
+    prio = payload.get("priority")
+    if prio is None:
+        raise HTTPException(status_code=400, detail="Missing priority")
+    try:
+        prio_i = int(prio)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail="priority must be an integer") from e
+    if prio_i < 1:
+        prio_i = 1
+    if prio_i > 10:
+        prio_i = 10
+
+    manifest = _sync_manifest_files(_load_manifest())
+    images = manifest.setdefault("images", {})
+    if filename not in images:
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    if not isinstance(images[filename], dict):
+        images[filename] = {"enabled": True, "explicit": False, "priority": prio_i, "uploaded_at": None}
+    else:
+        images[filename]["priority"] = prio_i
+
+    _save_manifest(manifest)
+    return {"ok": True, "filename": filename, "priority": prio_i}
+
+
+def _load_live_state() -> dict[str, Any]:
+    _ensure_dirs()
+    if not os.path.exists(LIVE_STATE_PATH):
+        return {"updated_at": None, "type": None, "filename": None, "url": None}
+    try:
+        with open(LIVE_STATE_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            return {"updated_at": None, "type": None, "filename": None, "url": None}
+        return data
+    except Exception:
+        return {"updated_at": None, "type": None, "filename": None, "url": None}
+
+
+@app.get("/api/live-preview")
+def live_preview() -> dict[str, Any]:
+    """
+    Returns metadata + URL for the most recently pushed image.
+    The image itself is served under /live (StaticFiles).
+    """
+    data = _load_live_state()
+    # Normalize: ensure url is present only if file exists
+    url = data.get("url")
+    if isinstance(url, str) and url.startswith("/live/"):
+        path = os.path.join(LIVE_DIR, os.path.basename(url))
+        if not os.path.exists(path):
+            url = None
+    else:
+        url = None
+
+    return {
+        "updated_at": data.get("updated_at"),
+        "type": data.get("type"),
+        "filename": data.get("filename"),
+        "url": url,
+    }
 
 @app.delete("/api/images/{filename}")
 def delete_image(filename: str) -> dict[str, Any]:
