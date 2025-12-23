@@ -1,4 +1,5 @@
 <script>
+  import { onDestroy, onMount } from "svelte";
   import { cls, ui } from "../lib/ui.js";
 
   export let images = [];
@@ -14,6 +15,25 @@
   let uploadOpen = false;
   let selectedFile = null;
   let uploading = false;
+  let nowMs = Date.now();
+  let tick = null;
+
+  onMount(() => {
+    tick = setInterval(() => {
+      nowMs = Date.now();
+    }, 1000);
+  });
+
+  onDestroy(() => {
+    if (tick) clearInterval(tick);
+  });
+
+  function secondsSince(iso) {
+    if (!iso) return null;
+    const t = Date.parse(String(iso));
+    if (!Number.isFinite(t)) return null;
+    return Math.max(0, Math.floor((nowMs - t) / 1000));
+  }
 
   async function upload() {
     if (!selectedFile) return;
@@ -44,21 +64,52 @@
         <div class="flex items-start justify-between gap-3">
           <div>
             <div class={ui.cardTitle}>Live preview</div>
-            <div class={ui.cardDesc}>
-              Last pushed to TV{livePreview?.type ? ` • ${livePreview.type}` : ""}{livePreview?.updated_at ? ` • ${livePreview.updated_at}` : ""}
-            </div>
+            <div class={ui.cardDesc}>Last pushed to TV</div>
           </div>
         </div>
       </div>
       <div class={ui.cardContent}>
-        <div class="aspect-[9/16] w-full max-w-[280px] overflow-hidden rounded-lg border border-border bg-background">
-          <img class="h-full w-full object-cover" alt="Live preview" src={livePreview.url} />
+        <div class="flex items-stretch gap-3">
+          <div class="w-1/4 max-w-[110px] shrink-0">
+            <div class="aspect-[9/16] w-full overflow-hidden rounded-md border border-border bg-background">
+              <img
+                class="h-full w-full object-cover"
+                style="transform: rotate(180deg);"
+                alt="Live preview"
+                src={livePreview.url}
+              />
+            </div>
+          </div>
+
+          <div class="min-w-0 flex-1">
+            <div class="flex flex-wrap items-center gap-2">
+              {#if livePreview?.type}
+                <span class="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">{livePreview.type}</span>
+              {/if}
+              {#if livePreview?.updated_at}
+                {@const s = secondsSince(livePreview.updated_at)}
+                {#if s !== null}
+                  <span class="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">{s}s ago</span>
+                {/if}
+              {/if}
+            </div>
+
+            {#if livePreview?.filename}
+              <div class="mt-2 truncate text-sm font-medium">{livePreview.filename}</div>
+            {/if}
+            {#if livePreview?.updated_at}
+              <div class="mt-1 truncate text-xs text-muted-foreground">{livePreview.updated_at}</div>
+            {/if}
+
+            {#if livePreview?.filename && (livePreview.type === "easteregg" || livePreview.type === "override")}
+              <div class="mt-3">
+                <button class={cls(ui.button, ui.buttonSecondary)} on:click={() => onOpenEgg(livePreview.filename)}>
+                  Open {livePreview.type}
+                </button>
+              </div>
+            {/if}
+          </div>
         </div>
-        {#if livePreview?.filename && (livePreview.type === "easteregg" || livePreview.type === "override")}
-          <button class={cls(ui.button, ui.buttonSecondary, "mt-3")} on:click={() => onOpenEgg(livePreview.filename)}>
-            Open {livePreview.type}
-          </button>
-        {/if}
       </div>
     </section>
   {/if}
@@ -85,7 +136,7 @@
             on:click={() => onOpenEgg(img.filename)}
           >
             <!-- Images are 9:16 — keep a consistent 9:16 frame for a clean 2-up grid -->
-            <div class="border-b border-border bg-muted/30 p-2">
+            <div class="border-b border-border bg-muted/30">
               <div class="aspect-[9/16] w-full overflow-hidden rounded-md border border-border bg-background">
                 <img
                   class="h-full w-full object-cover"
