@@ -41,6 +41,87 @@ LIVE_DIR = "./live"
 LIVE_PREVIEW_FILENAME = "preview.png"
 LIVE_STATE_FILENAME = "state.json"
 
+
+def _load_egg_manifest():
+    try:
+        if not os.path.exists(EASTER_EGGS_MANIFEST):
+            return {"version": 1, "images": {}}
+        with open(EASTER_EGGS_MANIFEST, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            return {"version": 1, "images": {}}
+        data.setdefault("version", 1)
+        data.setdefault("images", {})
+        if not isinstance(data["images"], dict):
+            data["images"] = {}
+        return data
+    except Exception:
+        return {"version": 1, "images": {}}
+
+
+def _save_egg_manifest(manifest):
+    try:
+        os.makedirs(EASTER_EGGS_DIR, exist_ok=True)
+        tmp_path = EASTER_EGGS_MANIFEST + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(manifest, f, indent=2, sort_keys=True)
+        os.replace(tmp_path, EASTER_EGGS_MANIFEST)
+    except Exception as e:
+        print(f"Warning: failed to save manifest.json ({e})")
+
+
+def _get_cached_content_id(filename):
+    manifest = _load_egg_manifest()
+    images = manifest.get("images", {})
+    meta = images.get(filename)
+    if isinstance(meta, dict):
+        cid = meta.get("tv_content_id")
+        if isinstance(cid, str) and cid:
+            return cid
+    return None
+
+
+def _set_cached_content_id(filename, content_id):
+    manifest = _load_egg_manifest()
+    images = manifest.setdefault("images", {})
+    meta = images.get(filename)
+    if not isinstance(meta, dict):
+        meta = {"enabled": True, "explicit": False, "priority": 5, "uploaded_at": None}
+    meta["tv_content_id"] = content_id
+    images[filename] = meta
+    manifest["images"] = images
+    _save_egg_manifest(manifest)
+
+
+def _preserved_content_ids():
+    """All cached easteregg/override content IDs that should never be deleted."""
+    manifest = _load_egg_manifest()
+    images = manifest.get("images", {})
+    keep = set()
+    if isinstance(images, dict):
+        for _, meta in images.items():
+            if not isinstance(meta, dict):
+                continue
+            cid = meta.get("tv_content_id")
+            if isinstance(cid, str) and cid:
+                keep.add(cid)
+    return keep
+
+
+def _delete_old_user_art(tv, keep_ids):
+    """Deletes TV 'MY_' art except IDs in keep_ids."""
+    try:
+        available_art = tv.art().available()
+        if not available_art:
+            return
+        user_art_ids = [art["content_id"] for art in available_art if art.get("content_id", "").startswith("MY_")]
+        ids_to_delete = [art_id for art_id in user_art_ids if art_id not in keep_ids]
+        if ids_to_delete and DELETE_OLD_ART:
+            print(f"Deleting {len(ids_to_delete)} old user art pieces (keeping {len(keep_ids)} cached): {ids_to_delete}")
+            tv.art().delete_list(ids_to_delete)
+    except Exception as e:
+        print(f"Warning: cleanup failed ({e})")
+
 # Home Assistant explicit toggle (read at easter-egg time)
 HA_EXPLICIT_ENTITY = os.environ.get("HA_EXPLICIT_ENTITY", "input_boolean.explicit_frame_art")
 HA_BASE_URL = os.environ.get("HA_BASE_URL", "").rstrip("/")  # e.g. https://ha.example.com
@@ -639,10 +720,11 @@ def connect_to_tv(tv_ip):
         print(f"Failed to connect: {e}")
         return False
 
-def update_tv_art(tv, image_path):
-    """Connects to TV, uploads image, cleans old, selects new."""
+def update_tv_art(tv, image_path, preserve_ids=None):
+    """Uploads image, selects it, then deletes old art while preserving cached IDs."""
     print(f"--- Starting TV Update --- ")
     try:
+        preserve_ids = set(preserve_ids or [])
         # 1. Ensure Art Mode is On
         try:
             print("Ensuring Art Mode is ON...")
@@ -670,35 +752,30 @@ def update_tv_art(tv, image_path):
         print(f"Selecting new image: {new_content_id}")
         tv.art().select_image(new_content_id, show=True)
         print("Selection command sent.")
-
-        # 4. Get existing user art
-        print("Getting available art list...")
-        available_art = tv.art().available()
-        # if isinstance(available_art, str):
-        #     available_art = json.loads(available_art)
-        if not available_art:
-            print("Warning: Could not get available art list or list is empty.")
-            user_art_ids = []
-        else:
-            user_art_ids = [art['content_id'] for art in available_art if art['content_id'].startswith('MY_')]
-            print(f"Found {len(user_art_ids)} existing user art pieces: {user_art_ids}")
-
-        # 5. Delete old art (except the new one)
-        ids_to_delete = [art_id for art_id in user_art_ids if art_id != new_content_id]
-        if ids_to_delete and DELETE_OLD_ART:
-            print(f"Deleting {len(ids_to_delete)} old user art pieces: {ids_to_delete}")
-            delete_result = tv.art().delete_list(ids_to_delete)
-            # Check delete_result if needed (docs don't specify return value)
-            print("Deletion command sent.")
-        else:
-            print("No old user art pieces to delete.")
+        # Cleanup old art, but keep cached eastereggs + current
+        preserve_ids.add(new_content_id)
+        _delete_old_user_art(tv, preserve_ids)
 
         print("--- TV Update Finished ---")
-        return True
+        return new_content_id
 
     except Exception as e:
         print(f"Error during TV interaction: {e}")
         print("--- TV Update Failed ---")
+        return None
+
+
+def select_tv_art(tv, content_id, preserve_ids=None):
+    """Select a previously uploaded piece of TV art, then cleanup while preserving cached IDs."""
+    try:
+        preserve_ids = set(preserve_ids or [])
+        tv.art().set_artmode(True)
+        tv.art().select_image(content_id, show=True)
+        preserve_ids.add(content_id)
+        _delete_old_user_art(tv, preserve_ids)
+        return True
+    except Exception as e:
+        print(f"Warning: failed to select cached art {content_id} ({e})")
         return False
 
 # --- Main Loop (Synchronous) ---
@@ -748,7 +825,30 @@ def main_loop(tv_ip, interval_minutes):
             override_path = get_override_image_path()
             if override_path:
                 print(f"Override active: {override_path}")
-                image_path = prepare_rotated_image(override_path)
+                override_filename = os.path.basename(override_path)
+                preserve = _preserved_content_ids()
+                cached_id = _get_cached_content_id(override_filename)
+                # Always generate a rotated preview image for the web UI
+                rotated_for_preview = prepare_rotated_image(override_path)
+                if cached_id:
+                    print(f"Reusing cached TV content_id for override: {cached_id}")
+                    ok = select_tv_art(tv, cached_id, preserve_ids=preserve)
+                    if ok and rotated_for_preview:
+                        _write_live_preview(rotated_for_preview, {"type": "override", "filename": override_filename})
+                    iteration += 1
+                    # Sleep until next cycle
+                    current_time = time.time()
+                    seconds_past_minute = current_time % 60
+                    sleep_seconds = (interval_minutes * 60) - seconds_past_minute
+                    if sleep_seconds == 0:
+                        sleep_seconds = (interval_minutes * 60) - 1
+                    print(f"===== Cycle finished. Sleeping for {sleep_seconds:.2f} seconds until next minute... ====")
+                    time.sleep(sleep_seconds)
+                    continue
+                else:
+                    # First time: upload once and cache content_id
+                    image_path = rotated_for_preview
+                    live_meta = {"type": "override", "filename": override_filename}
             else:
                 image_path = None
 
@@ -764,12 +864,31 @@ def main_loop(tv_ip, interval_minutes):
                 is_easter_egg = random.randint(1, denom) == 1
 
             if (not image_path) and is_easter_egg:
-                print(f\"It's Easter Egg time! (1/{denom} chance hit)\")
+                print(f"It's Easter Egg time! (1/{denom} chance hit)")
                 egg_path = get_random_easter_egg_filtered()
                 if egg_path:
                      print(f"Selected easter egg: {egg_path}")
-                     image_path = prepare_rotated_image(egg_path)
-                     live_meta = {"type": "easteregg", "filename": os.path.basename(egg_path)}
+                     egg_filename = os.path.basename(egg_path)
+                     preserve = _preserved_content_ids()
+                     cached_id = _get_cached_content_id(egg_filename)
+                     rotated_for_preview = prepare_rotated_image(egg_path)
+                     if cached_id:
+                         print(f"Reusing cached TV content_id for easteregg: {cached_id}")
+                         ok = select_tv_art(tv, cached_id, preserve_ids=preserve)
+                         if ok and rotated_for_preview:
+                             _write_live_preview(rotated_for_preview, {"type": "easteregg", "filename": egg_filename})
+                         iteration += 1
+                         current_time = time.time()
+                         seconds_past_minute = current_time % 60
+                         sleep_seconds = (interval_minutes * 60) - seconds_past_minute
+                         if sleep_seconds == 0:
+                             sleep_seconds = (interval_minutes * 60) - 1
+                         print(f"===== Cycle finished. Sleeping for {sleep_seconds:.2f} seconds until next minute... ====")
+                         time.sleep(sleep_seconds)
+                         continue
+                     else:
+                         image_path = rotated_for_preview
+                         live_meta = {"type": "easteregg", "filename": egg_filename}
                 else:
                      print("No easter eggs found. Falling back to Timeform.")
 
@@ -781,12 +900,13 @@ def main_loop(tv_ip, interval_minutes):
 
             if image_path:
                 # Run the synchronous TV update
-                ok = update_tv_art(tv, image_path)
-                if ok:
+                preserve = _preserved_content_ids()
+                new_id = update_tv_art(tv, image_path, preserve_ids=preserve)
+                if new_id:
+                    # Cache content_id only for eastereggs/override (files under eastereggs/)
                     try:
-                        # If override was active, reflect that in live preview
-                        if override_path:
-                            live_meta = {"type": "override", "filename": os.path.basename(override_path)}
+                        if live_meta.get("type") in ("easteregg", "override") and live_meta.get("filename"):
+                            _set_cached_content_id(live_meta["filename"], new_id)
                     except Exception:
                         pass
                     _write_live_preview(image_path, live_meta if "live_meta" in locals() else {"type": None, "filename": None})

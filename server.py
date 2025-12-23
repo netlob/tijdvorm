@@ -139,13 +139,14 @@ def _sync_manifest_files(manifest: dict[str, Any]) -> dict[str, Any]:
         if not _is_allowed_image(f):
             continue
         if f not in images:
-            images[f] = {"enabled": True, "explicit": False, "priority": 5, "uploaded_at": None}
+            images[f] = {"enabled": True, "explicit": False, "priority": 5, "tv_content_id": None, "uploaded_at": None}
         else:
             # Ensure new keys exist for older manifests
             if isinstance(images.get(f), dict):
                 images[f].setdefault("explicit", False)
                 images[f].setdefault("enabled", True)
                 images[f].setdefault("priority", 5)
+                images[f].setdefault("tv_content_id", None)
 
     manifest["images"] = images
     return manifest
@@ -266,7 +267,7 @@ async def upload_image(file: UploadFile = File(...)) -> dict[str, Any]:
 
     manifest = _load_manifest()
     images = manifest.setdefault("images", {})
-    images[filename] = {"enabled": True, "explicit": False, "priority": 5, "uploaded_at": _utc_now_iso()}
+    images[filename] = {"enabled": True, "explicit": False, "priority": 5, "tv_content_id": None, "uploaded_at": _utc_now_iso()}
     _save_manifest(manifest)
 
     return {"ok": True, "filename": filename}
@@ -299,7 +300,7 @@ def set_explicit(filename: str, payload: dict[str, Any]) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="Image not found")
 
     if not isinstance(images[filename], dict):
-        images[filename] = {"enabled": True, "explicit": explicit, "priority": 5, "uploaded_at": None}
+        images[filename] = {"enabled": True, "explicit": explicit, "priority": 5, "tv_content_id": None, "uploaded_at": None}
     else:
         images[filename]["explicit"] = explicit
 
