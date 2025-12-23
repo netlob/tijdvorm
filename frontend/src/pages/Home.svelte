@@ -201,17 +201,16 @@
 
 <!-- Upload dialog (modal) -->
 {#if uploadOpen}
-  <div
-    class="fixed inset-0 z-50 flex items-start justify-center bg-black/60 p-4"
-    style="padding-top: calc(env(safe-area-inset-top) + 64px);"
-    role="dialog"
-    aria-modal="true"
-    aria-label="Upload easteregg"
-    on:click={(e) => {
-      if (e.currentTarget === e.target) uploadOpen = false;
-    }}
-  >
-    <div class={cls(ui.card, "w-full max-w-md")}>
+  <div class="fixed inset-0 z-50 p-4" style="padding-top: calc(env(safe-area-inset-top) + 64px);">
+    <!-- Backdrop as a real button => no a11y warnings, supports keyboard by default -->
+    <button
+      type="button"
+      class="absolute inset-0 bg-black/60"
+      aria-label="Close upload dialog"
+      on:click={() => (uploadOpen = false)}
+    ></button>
+
+    <div class={cls(ui.card, "relative mx-auto w-full max-w-md")} role="dialog" aria-modal="true" aria-label="Upload easteregg">
       <div class={ui.cardHeader}>
         <div class="flex items-start justify-between gap-3">
           <div>

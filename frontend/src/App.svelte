@@ -1,5 +1,5 @@
 <script>
-  import { route, goto } from "./lib/router.js";
+  import { writable } from "svelte/store";
   import BottomNav from "./components/BottomNav.svelte";
   import Home from "./pages/Home.svelte";
   import EggDetail from "./pages/EggDetail.svelte";
@@ -17,6 +17,34 @@
     apiSetOverride,
     apiUpload
   } from "./lib/api.js";
+
+  function parseHash() {
+    const raw = (location.hash || "#/").slice(1);
+    const path = raw.startsWith("/") ? raw : `/${raw}`;
+    const clean = path.replace(/\/+$/, "") || "/";
+
+    if (clean === "/" || clean === "/home") return { name: "home" };
+    if (clean === "/settings") return { name: "settings" };
+
+    const eggPrefix = "/egg/";
+    if (clean.startsWith(eggPrefix)) {
+      const filename = decodeURIComponent(clean.slice(eggPrefix.length));
+      return { name: "egg", filename };
+    }
+
+    return { name: "home" };
+  }
+
+  const route = writable(parseHash());
+
+  function goto(path) {
+    const next = path.startsWith("/") ? path : `/${path}`;
+    location.hash = `#${next}`;
+  }
+
+  window.addEventListener("hashchange", () => {
+    route.set(parseHash());
+  });
 
   let images = [];
   let override = { filename: null, set_at: null };
