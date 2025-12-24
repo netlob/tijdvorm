@@ -11,6 +11,10 @@ import platform
 import subprocess
 import json
 from datetime import datetime, timezone
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 from samsungtvws import SamsungTVWS
 
