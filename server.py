@@ -518,13 +518,56 @@ def _handle_doorbell(data: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "status": "override_set_pending_update"}
 
 
+async def _handle_doorbell_off() -> dict[str, Any]:
+    # 1. Clear Override
+    _save_override(None)
+    
+    # 2. Restore default art immediately
+    if main_script:
+        try:
+            print("[Doorbell] Doorbell OFF received. Restoring default art...", flush=True)
+            
+            # Check Sauna Logic (replicate main_loop behavior)
+            sauna_status = main_script.get_sauna_status()
+            image_path = None
+            live_meta = {}
+
+            if sauna_status and sauna_status.get('is_on'):
+                 print("[Doorbell] Sauna is ON. Generating sauna image...", flush=True)
+                 image_path = await main_script.generate_sauna_image(sauna_status)
+                 live_meta = {"type": "sauna", "filename": os.path.basename(image_path) if image_path else None}
+            else:
+                 print("[Doorbell] Generating Timeform image...", flush=True)
+                 image_path = await main_script.generate_timeform_image()
+                 live_meta = {"type": "timeform", "filename": os.path.basename(image_path) if image_path else None}
+
+            if image_path:
+                 print(f"[Doorbell] Connecting to TV at {main_script.TV_IP}...", flush=True)
+                 tv = main_script.connect_to_tv(main_script.TV_IP)
+                 if tv:
+                     print("[Doorbell] Connected. Uploading restored art...", flush=True)
+                     preserve = main_script._preserved_content_ids()
+                     new_id = main_script.update_tv_art(tv, image_path, preserve_ids=preserve)
+                     if new_id:
+                         # Update live preview
+                         main_script._write_live_preview(image_path, live_meta)
+                         return {"ok": True, "status": "restored", "content_id": new_id}
+            else:
+                 print("[Doorbell] Failed to generate restore image.", flush=True)
+
+        except Exception as e:
+            print(f"[Doorbell] Error restoring TV: {e}", flush=True)
+
+    return {"ok": True, "status": "override_cleared_pending_update"}
+
+
 @app.post("/api/ha")
-def ha_webhook(payload: dict[str, Any]) -> dict[str, Any]:
+async def ha_webhook(payload: dict[str, Any]) -> dict[str, Any]:
     """
     Unified endpoint for Home Assistant automations.
     Payload format:
       {
-        "action": "doorbell" | ...,
+        "action": "doorbell" | "doorbell_on" | "doorbell_off",
         "data": { ... }
       }
     """
@@ -533,8 +576,10 @@ def ha_webhook(payload: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(data, dict):
         data = {}
 
-    if action == "doorbell":
+    if action == "doorbell" or action == "doorbell_on":
         return _handle_doorbell(data)
+    elif action == "doorbell_off":
+        return await _handle_doorbell_off()
     
     raise HTTPException(status_code=400, detail=f"Unknown action: {action}")
 
