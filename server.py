@@ -1,8 +1,16 @@
 import os
 import json
 import shutil
+import requests
 from datetime import datetime, timezone
 from typing import Any
+
+# Import shared logic from main.py
+try:
+    import main as main_script
+except ImportError:
+    main_script = None
+    print("[tijdvorm] Warning: Could not import main.py. Doorbell feature will be limited.")
 
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -430,6 +438,80 @@ def set_settings(payload: dict[str, Any]) -> dict[str, Any]:
     settings["easter_egg_chance_denominator"] = denom_i
     _save_settings(settings)
     return {"ok": True, "easter_egg_chance_denominator": denom_i}
+
+
+def _handle_doorbell(data: dict[str, Any]) -> dict[str, Any]:
+    snapshot_url = "http://nvr.netlob/cgi-bin/api.cgi?cmd=Snap&channel=0&rs=wuuPhkmUCeI9WG7C&user=api&password=peepeepoopoo"
+    filename = "doorbell.jpg"
+    
+    # 1. Fetch Snapshot
+    try:
+        print(f"[Doorbell] Fetching snapshot from {snapshot_url}...", flush=True)
+        resp = requests.get(snapshot_url, timeout=10)
+        resp.raise_for_status()
+    except Exception as e:
+        print(f"[Doorbell] Failed to fetch snapshot: {e}", flush=True)
+        raise HTTPException(status_code=502, detail="Failed to fetch doorbell snapshot")
+
+    # 2. Save to disk (eastereggs folder so it can be an override)
+    _ensure_dirs()
+    file_path = os.path.join(EASTER_EGGS_DIR, filename)
+    try:
+        with open(file_path, "wb") as f:
+            f.write(resp.content)
+    except Exception as e:
+        print(f"[Doorbell] Failed to save snapshot: {e}", flush=True)
+        raise HTTPException(status_code=500, detail="Failed to save snapshot")
+
+    # 3. Set Override (so main loop respects it if it wakes up)
+    _save_override(filename)
+    
+    # 4. Immediate TV Update
+    if main_script:
+        try:
+            # Rotate image (required for The Frame apparently)
+            print("[Doorbell] Rotating image...", flush=True)
+            rotated_path = main_script.prepare_rotated_image(file_path)
+            
+            if rotated_path:
+                print(f"[Doorbell] Connecting to TV at {main_script.TV_IP}...", flush=True)
+                tv = main_script.connect_to_tv(main_script.TV_IP)
+                if tv:
+                    print("[Doorbell] Connected. Uploading art...", flush=True)
+                    # Preserve existing content IDs to avoid cache trashing
+                    preserve = main_script._preserved_content_ids()
+                    new_id = main_script.update_tv_art(tv, rotated_path, preserve_ids=preserve)
+                    if new_id:
+                        print(f"[Doorbell] TV updated successfully (Content ID: {new_id})", flush=True)
+                        return {"ok": True, "status": "displayed", "content_id": new_id}
+                else:
+                    print("[Doorbell] Failed to connect to TV.", flush=True)
+        except Exception as e:
+            print(f"[Doorbell] Error updating TV: {e}", flush=True)
+            # We don't raise here because the override is set, so it might work later
+    
+    return {"ok": True, "status": "override_set_pending_update"}
+
+
+@app.post("/api/ha")
+def ha_webhook(payload: dict[str, Any]) -> dict[str, Any]:
+    """
+    Unified endpoint for Home Assistant automations.
+    Payload format:
+      {
+        "action": "doorbell" | ...,
+        "data": { ... }
+      }
+    """
+    action = payload.get("action")
+    data = payload.get("data", {})
+    if not isinstance(data, dict):
+        data = {}
+
+    if action == "doorbell":
+        return _handle_doorbell(data)
+    
+    raise HTTPException(status_code=400, detail=f"Unknown action: {action}")
 
 
 if __name__ == "__main__":
