@@ -183,3 +183,5 @@ frontend/dist/
 frontend/build/
 frontend/.vite/
 *.pid
+
+.DS_Store
