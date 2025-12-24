@@ -1,7 +1,8 @@
 import sys
+import time
 import logging
 from time import sleep
-sys.path.append('../')
+# sys.path.append('../')
 
 # from samsungtvws import SamsungTVWS
 
@@ -21,12 +22,12 @@ tv = SamsungTVWS('10.0.1.111')
 # logging.info(info)
 
 # List the art available on the device
-# info = tv.art().available()
-# logging.info(info)
+info = tv.art().available()
+logging.info(info)
 
 # # Retrieve information about the currently selected art
-info = tv.art().get_current()
-logging.info(info)
+# info = tv.art().get_current()
+# logging.info(info)
 
 # # Retrieve a thumbnail for a specific piece of art. Returns a JPEG.
 # thumbnail = tv.art().get_thumbnail('SAM-F0206')
@@ -46,12 +47,15 @@ logging.info(info)
 # tv.art().set_artmode(False)
 
 # # # Upload a picture
-file = open('/Users/sjoerdbolten/Documents/Projects/tijdvorm/py/timeform_art.png', 'rb')
-data = file.read()
-content_id  = tv.art().upload(data, matte='none')
-print(content_id)
-sleep(2)
+# file = open('/Users/sjoerdbolten/Documents/Projects/tijdvorm/py/timeform_art.png', 'rb')
+# data = file.read()
+# content_id  = tv.art().upload(data, matte='none')
+# content_id = 'MY_F18998' # boef
+content_id = 'MY_F19054' # clock
+start_time = time.time()
+print('setting art to', content_id)
 print(tv.art().select_image(content_id, show=True))
+print('set art to', content_id, 'took ', time.time() - start_time, 'seconds')
 
 # # If uploading a JPEG
 # tv.art().upload(data, file_type='JPEG')

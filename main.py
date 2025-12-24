@@ -25,7 +25,7 @@ DELETE_OLD_ART = True # turn on to always delete all manually uploaded art
 # TODO: tag & only delete old "timefroms" art, not user uploaded art
 
 # --- Configuration Constants ---
-WEATHER_LOCATION = "Amsterdam,NL"
+WEATHER_LOCATION = "Nieuw-Vennep,NL"
 URL = "https://timeforms.app"
 
 # Selectors
@@ -145,7 +145,7 @@ RENDER_WAIT_TIME = 3 # Seconds to wait after page actions for rendering
 SIMULATE_HOUR = None# Set hour (0-23) or None
 
 # Weather API
-MODIFIED_WEATHER_URL = f"https://api.weatherapi.com/v1/current.json?key=8cd71ded6ce646e888600951251504&q={WEATHER_LOCATION}"
+MODIFIED_WEATHER_URL = f"https://api.weatherapi.com/v1/current.json?key=8cd71ded6ce646e888600951251504&q={WEATHER_LOCATION}&lang=NL"
 
 # Font Configuration
 FONT_PATH = "./fonts/SFNS.ttf"
