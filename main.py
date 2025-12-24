@@ -634,6 +634,7 @@ def get_sauna_status():
     Returns a dict with 'is_on', 'current_temp', 'set_temp' or None if failed/off.
     """
     if not HA_BASE_URL or not HA_TOKEN:
+        print("Warning: HA_BASE_URL or HA_TOKEN not set. Skipping sauna check.")
         return None
 
     url = f"{HA_BASE_URL}/api/states/{HA_SAUNA_ENTITY}"
@@ -645,11 +646,13 @@ def get_sauna_status():
         )
         resp.raise_for_status()
         data = resp.json()
-        print(f"Sauna data raw: {data}")
+        
+        # Debug logs
+        # print(f"Sauna data raw: {data}")
+        
         state = data.get("state")
         attributes = data.get("attributes", {})
-        print(f"Sauna state: {state}")
-        print(f"Sauna attributes: {attributes}")
+        
         is_on = state == "heat_cool"
         if is_on:
              return {
@@ -657,6 +660,7 @@ def get_sauna_status():
                  "current_temp": attributes.get("current_temperature"),
                  "set_temp": attributes.get("temperature")
              }
+        # print(f"Sauna is not on (state: {state})")
         return None
 
     except Exception as e:
