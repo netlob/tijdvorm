@@ -1292,8 +1292,8 @@ def main_loop(tv_ip, interval_minutes):
                      live_meta = {"type": "sauna", "filename": os.path.basename(image_path) if image_path else None}
                 else:
                     # Run the async image generation (Timeform)
-                image_path = asyncio.run(generate_timeform_image())
-                live_meta = {"type": "timeform", "filename": os.path.basename(image_path) if image_path else None}
+                    image_path = asyncio.run(generate_timeform_image())
+                    live_meta = {"type": "timeform", "filename": os.path.basename(image_path) if image_path else None}
 
             if image_path:
                 # Run the synchronous TV update
