@@ -40,6 +40,7 @@ EASTER_EGGS_DIR = "./eastereggs"
 EASTER_EGGS_MANIFEST = os.path.join(EASTER_EGGS_DIR, "manifest.json")
 EASTER_EGGS_OVERRIDE = os.path.join(EASTER_EGGS_DIR, "override.json")
 EASTER_EGGS_SETTINGS = os.path.join(EASTER_EGGS_DIR, "settings.json")
+SAUNA_LOG_FILE = "sauna_log.json"
 
 LIVE_DIR = "./live"
 LIVE_PREVIEW_FILENAME = "preview.png"
@@ -483,6 +484,7 @@ async def generate_sauna_image(sauna_status):
     # [Current Temp] [Outdoor Temp]
     # [Power]
     # [Time]
+    # [Prediction]
 
     title_str = "Cooking tot"
     set_temp_str = f"{sauna_status.get('set_temp', 0):.0f}°C"
@@ -492,6 +494,9 @@ async def generate_sauna_image(sauna_status):
     
     outdoor_str = f" / {temp_c_str}"
     time_str = time.strftime("%H:%M")
+    
+    # Calculate Prediction
+    prediction_str = update_sauna_prediction(cur_val, float(sauna_status.get('set_temp', 0)))
 
     font_title = fonts.get('font_cond') # Use condition font for title
     font_set = fonts.get('font_temp') # Use big temp font for set temp
@@ -544,6 +549,12 @@ async def generate_sauna_image(sauna_status):
              # Add a bit more spacing before time perhaps?
              current_y += line_spacing_scaled 
              draw.text((text_padding_x, current_y), time_str, font=font_time, fill=TEXT_COLOR)
+             bbox = draw.textbbox((0, 0), time_str, font=font_time)
+             current_y += (bbox[3] - bbox[1]) + line_spacing_scaled
+
+        # Prediction (below time, or maybe swap?)
+        if prediction_str and font_sub:
+             draw.text((text_padding_x, current_y), prediction_str, font=font_sub, fill=TEXT_COLOR)
 
     except Exception as e:
         print(f"Error drawing sauna text: {e}")
@@ -762,6 +773,103 @@ def _ha_explicit_allowed():
             _ha_cache["value"] = False
             _ha_cache["ts"] = now
         return bool(_ha_cache["value"])
+
+
+def update_sauna_prediction(current_temp, set_temp):
+    """
+    Updates the sauna log and returns a prediction string (e.g., 'ETA: 20 min').
+    Handles resetting the log if temp drops significantly.
+    """
+    try:
+        now = time.time()
+        log_data = {"peak_temp": 0.0, "history": []}
+        
+        # Load existing log
+        if os.path.exists(SAUNA_LOG_FILE):
+            try:
+                with open(SAUNA_LOG_FILE, "r") as f:
+                    log_data = json.load(f)
+            except Exception:
+                pass # Corrupt or empty, start fresh
+
+        peak = log_data.get("peak_temp", 0.0)
+        history = log_data.get("history", [])
+
+        # Check Reset Condition (drop < 50% of peak)
+        # We only check this if we have a peak established > 0
+        if peak > 0 and current_temp < (0.5 * peak):
+            print(f"Sauna temp dropped significantly ({current_temp} < 0.5 * {peak}). Resetting log.")
+            log_data = {"peak_temp": current_temp, "history": []}
+            peak = current_temp
+            history = []
+
+        # Update Peak
+        if current_temp > peak:
+            log_data["peak_temp"] = current_temp
+            peak = current_temp
+
+        # Append current measurement
+        history.append({"ts": now, "temp": current_temp})
+        
+        # Keep only last 3 hours of history to avoid indefinite growth
+        cutoff = now - (3 * 3600)
+        history = [h for h in history if h["ts"] > cutoff]
+        
+        log_data["history"] = history
+        
+        # Save Log
+        try:
+            with open(SAUNA_LOG_FILE, "w") as f:
+                json.dump(log_data, f)
+        except Exception as e:
+            print(f"Warning: Could not save sauna log: {e}")
+
+        # --- Prediction Logic ---
+        if len(history) < 2:
+            return None # Not enough data
+            
+        if current_temp >= set_temp:
+            return "Ready!"
+
+        # Use recent history (last 15 minutes) for prediction
+        window_start = now - (15 * 60)
+        recent_points = [h for h in history if h["ts"] >= window_start]
+        
+        if len(recent_points) < 2:
+            # Fallback to all history if recent is sparse
+            recent_points = history
+
+        if len(recent_points) < 2:
+             return None
+
+        # Calculate Rate (deg/min)
+        # Simple slope: (last - first) / time_diff
+        first_pt = recent_points[0]
+        last_pt = recent_points[-1]
+        
+        temp_diff = last_pt["temp"] - first_pt["temp"]
+        time_diff_min = (last_pt["ts"] - first_pt["ts"]) / 60.0
+        
+        if time_diff_min <= 0 or temp_diff <= 0:
+            return None # Not heating or invalid time
+
+        rate = temp_diff / time_diff_min # degrees per minute
+        
+        remaining_temp = set_temp - current_temp
+        if remaining_temp <= 0:
+            return "Ready!"
+            
+        minutes_left = remaining_temp / rate
+        
+        # Cap prediction at reasonable bounds (e.g. 120 mins)
+        if minutes_left > 120:
+            return "> 2 hours"
+            
+        return f"Ready in ~{minutes_left:.0f} min"
+
+    except Exception as e:
+        print(f"Error in sauna prediction: {e}")
+        return None
 
 
 def get_sauna_status():
