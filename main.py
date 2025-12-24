@@ -484,8 +484,8 @@ async def generate_sauna_image(sauna_status):
     # 4. Draw Text
     # Top-Left Section (Sauna Status)
     # "Cooking tot"
-    # [Set Temp]
-    # [Current Temp]
+    # [Current Temp] / [Set Temp]
+    # [Power]
     
     # Top-Right Section (Outdoor Status)
     # "Buiten"
@@ -493,10 +493,12 @@ async def generate_sauna_image(sauna_status):
     # [Weather Desc]
 
     # Middle Center (Prediction)
-    # [Prediction] (y=880)
+    # [Prediction] (y=1800 - moved to bottom as requested)
+    # Actually user said "move the prediction string to below the sauna where the power is now"
+    # Power was at 1800. So Prediction goes to 1800.
 
-    # Bottom Center (Power)
-    # [Power] (y=1800)
+    # Bottom Center (was Power, now Prediction)
+    # [Prediction] (y=1800)
 
     title_str = "Cooking tot"
     set_temp_str = f"{sauna_status.get('set_temp', 0):.0f}°C"
@@ -504,6 +506,9 @@ async def generate_sauna_image(sauna_status):
     cur_val = float(sauna_status.get('current_temp', 0))
     current_temp_str = f"{cur_val:.0f}°C"
     
+    # Combined Temp String: "45°C / 80°C"
+    combined_temp_str = f"{current_temp_str} / {set_temp_str}"
+
     # Outdoor strings
     outdoor_title_str = "Buiten"
     time_str = time.strftime("%H:%M")
@@ -513,7 +518,7 @@ async def generate_sauna_image(sauna_status):
     prediction_str = update_sauna_prediction(cur_val, float(sauna_status.get('set_temp', 0)))
 
     font_title = fonts.get('font_cond') # Use condition font for title
-    font_set = fonts.get('font_temp') # Use big temp font for set temp
+    font_set = fonts.get('font_temp') # Use big temp font for set temp (using for combined)
     font_sub = fonts.get('font_cond') # Use condition font for sub-line
     font_time = fonts.get('font_time')
 
@@ -531,12 +536,12 @@ async def generate_sauna_image(sauna_status):
             current_y += (bbox[3] - bbox[1]) + line_spacing_scaled
 
         if font_set:
-            draw.text((text_padding_x, current_y), set_temp_str, font=font_set, fill=TEXT_COLOR)
-            bbox = draw.textbbox((0, 0), set_temp_str, font=font_set)
+            draw.text((text_padding_x, current_y), combined_temp_str, font=font_set, fill=TEXT_COLOR)
+            bbox = draw.textbbox((0, 0), combined_temp_str, font=font_set)
             current_y += (bbox[3] - bbox[1]) + line_spacing_scaled
 
-        if font_sub:
-            draw.text((text_padding_x, current_y), current_temp_str, font=font_sub, fill=TEXT_COLOR)
+        if power_str and font_sub:
+            draw.text((text_padding_x, current_y), power_str, font=font_sub, fill=TEXT_COLOR)
             
         # --- Top Right: Outdoor Status ---
         # Aligned to right margin (OUTPUT_WIDTH - TEXT_PADDING)
@@ -559,19 +564,12 @@ async def generate_sauna_image(sauna_status):
                  w_desc = draw.textlength(weather_desc_str, font=font_sub)
                  draw.text((right_margin_x - w_desc, current_y_right), weather_desc_str, font=font_sub, fill=TEXT_COLOR)
 
-        # --- Middle Center: Prediction ---
-        # y = 880
-        if prediction_str and font_sub:
+        # --- Bottom Center: Prediction (was Power) ---
+        # y = 1800
+        if prediction_str and font_sub: # Using sub font or maybe bigger? User didn't specify size change, just pos.
              w_pred = draw.textlength(prediction_str, font=font_sub)
              center_x = OUTPUT_WIDTH // 2
-             draw.text((center_x - (w_pred / 2), 880), prediction_str, font=font_sub, fill=TEXT_COLOR)
-
-        # --- Bottom Center: Power ---
-        # y = 1800
-        if power_str and font_time: # Using time font for power? Or sub? User asked to replace previous bottom line
-             w_power = draw.textlength(power_str, font=font_time)
-             center_x = OUTPUT_WIDTH // 2
-             draw.text((center_x - (w_power / 2), 1800), power_str, font=font_time, fill=TEXT_COLOR)
+             draw.text((center_x - (w_pred / 2), 1800), prediction_str, font=font_sub, fill=TEXT_COLOR)
 
     except Exception as e:
         print(f"Error drawing sauna text: {e}")
@@ -793,7 +791,7 @@ def _ha_explicit_allowed():
 
 
 def update_sauna_prediction(current_temp, set_temp):
-    return f"Bastu in ~18 min"
+    return f"Bastu ready in ~18 min"
     """
     Updates the sauna log and returns a prediction string (e.g., 'ETA: 20 min').
     Handles resetting the log if temp drops significantly.
@@ -847,7 +845,7 @@ def update_sauna_prediction(current_temp, set_temp):
             return None # Not enough data
             
         if current_temp >= set_temp:
-            return "Ready!"
+            return "BASTUUUUU COOKING TOOOT"
 
         # Use recent history (last 15 minutes) for prediction
         window_start = now - (15 * 60)
@@ -875,15 +873,15 @@ def update_sauna_prediction(current_temp, set_temp):
         
         remaining_temp = set_temp - current_temp
         if remaining_temp <= 0:
-            return "Ready!"
+            return "BASTUUUUU COOKING TOOOT!"
             
         minutes_left = remaining_temp / rate
         
         # Cap prediction at reasonable bounds (e.g. 120 mins)
         if minutes_left > 120:
-            return "> 2 hours"
+            return "Bastu maakt geen progress"
             
-        return f"Bastu in ~{minutes_left:.0f} min"
+        return f"Bastu ready in ~{minutes_left:.0f} min"
 
     except Exception as e:
         print(f"Error in sauna prediction: {e}")
@@ -1324,4 +1322,5 @@ if __name__ == "__main__":
        print("!!! Please edit the script and set TV_IP to your Samsung Frame TV's actual IP address.\n")
        # exit(1) # Optional: Uncomment to prevent running with placeholder
     # update_tv_art(TV_IP, '/Users/sjoerdbolten/Documents/Projects/tijdvorm/py/timeform_art.png')
+    main_loop(TV_IP, UPDATE_INTERVAL_MINUTES) 
     main_loop(TV_IP, UPDATE_INTERVAL_MINUTES) 
