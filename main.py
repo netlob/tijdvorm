@@ -645,6 +645,7 @@ def get_sauna_status():
         )
         resp.raise_for_status()
         data = resp.json()
+        print(f"Sauna data raw: {data}")
         state = data.get("state")
         attributes = data.get("attributes", {})
         print(f"Sauna state: {state}")
