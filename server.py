@@ -2,6 +2,8 @@ import os
 import json
 import shutil
 import requests
+import io
+from PIL import Image
 from datetime import datetime, timezone
 from typing import Any
 
@@ -453,15 +455,38 @@ def _handle_doorbell(data: dict[str, Any]) -> dict[str, Any]:
         print(f"[Doorbell] Failed to fetch snapshot: {e}", flush=True)
         raise HTTPException(status_code=502, detail="Failed to fetch doorbell snapshot")
 
-    # 2. Save to disk (eastereggs folder so it can be an override)
+    # 2. Process and Save to disk
     _ensure_dirs()
     file_path = os.path.join(EASTER_EGGS_DIR, filename)
     try:
-        with open(file_path, "wb") as f:
-            f.write(resp.content)
+        # Load image from bytes
+        img = Image.open(io.BytesIO(resp.content))
+        
+        # Target Dimensions
+        TARGET_WIDTH = 1080
+        TARGET_HEIGHT = 1920
+        
+        # 1. Resize to fill height
+        # Calculate aspect ratio
+        original_width, original_height = img.size
+        # ratio to fill height
+        ratio = TARGET_HEIGHT / original_height
+        new_width = int(original_width * ratio)
+        new_height = TARGET_HEIGHT # should be 1920
+        
+        img_resized = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+        
+        # 2. Crop to 1080 width, aligned left
+        # (0, 0, 1080, 1920)
+        img_cropped = img_resized.crop((0, 0, TARGET_WIDTH, TARGET_HEIGHT))
+        
+        # Save processed image
+        img_cropped.save(file_path, quality=95)
+        print(f"[Doorbell] Processed image saved to {file_path} ({TARGET_WIDTH}x{TARGET_HEIGHT})", flush=True)
+
     except Exception as e:
-        print(f"[Doorbell] Failed to save snapshot: {e}", flush=True)
-        raise HTTPException(status_code=500, detail="Failed to save snapshot")
+        print(f"[Doorbell] Failed to process/save snapshot: {e}", flush=True)
+        raise HTTPException(status_code=500, detail="Failed to process/save snapshot")
 
     # 3. Set Override (so main loop respects it if it wakes up)
     _save_override(filename)
