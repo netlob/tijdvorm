@@ -124,6 +124,7 @@ def _delete_old_user_art(tv, keep_ids):
 
 # Home Assistant explicit toggle (read at easter-egg time)
 HA_EXPLICIT_ENTITY = os.environ.get("HA_EXPLICIT_ENTITY", "input_boolean.explicit_frame_art")
+HA_SAUNA_ENTITY = os.environ.get("HA_SAUNA_ENTITY", "climate.sauna_control")
 HA_BASE_URL = os.environ.get("HA_BASE_URL", "").rstrip("/")  # e.g. https://ha.example.com
 HA_TOKEN = os.environ.get("HA_TOKEN", "")
 HA_TIMEOUT_SECONDS = float(os.environ.get("HA_TIMEOUT_SECONDS", "2.0"))
@@ -338,11 +339,27 @@ def add_text_overlay(image, text_data, fonts, align_artwork_top):
     """Draw text overlay onto the image based on alignment."""
     if not image: return None
     print("Adding text overlay...")
+    
+    # Convert to RGBA to support opacity
+    image = image.convert('RGBA')
     draw = ImageDraw.Draw(image)
     
     temp_str = text_data.get('temp', '--°C')
     cond_str = text_data.get('condition', 'Unknown')
     time_str = time.strftime("%H:%M")
+
+    # Sauna Text Logic
+    sauna_data = text_data.get('sauna')
+    sauna_current_str = None
+    sauna_set_str = None
+    if sauna_data and sauna_data.get('is_on'):
+        try:
+            cur = float(sauna_data.get('current_temp', 0))
+            tgt = float(sauna_data.get('set_temp', 0))
+            sauna_current_str = f"Sauna: {cur:.0f}°C"
+            sauna_set_str = f" / {tgt:.0f}°C"
+        except Exception:
+            pass
 
     # Get the single font type loaded for different sizes
     font_temp = fonts.get('font_temp')
@@ -362,6 +379,16 @@ def add_text_overlay(image, text_data, fonts, align_artwork_top):
     except Exception as e: print(f"Warning: Error calculating text height: {e}")
 
     text_block_height = bbox_temp_h + LINE_SPACING + bbox_cond_h
+    
+    # Add sauna height
+    bbox_sauna_h = 0
+    if sauna_current_str and font_cond:
+         bbox_sauna_h = COND_FONT_SIZE 
+         try:
+             bbox_sauna_h = draw.textbbox((0, 0), sauna_current_str, font=font_cond)[3] - draw.textbbox((0, 0), sauna_current_str, font=font_cond)[1]
+         except Exception: pass
+         text_block_height += LINE_SPACING + bbox_sauna_h
+         
     if time_str: text_block_height += LINE_SPACING + bbox_time_h
 
     # Determine text Y position (using user's padding multiplier)
@@ -381,6 +408,16 @@ def add_text_overlay(image, text_data, fonts, align_artwork_top):
         if font_cond:
             draw.text((text_padding_x, current_y), cond_str, font=font_cond, fill=TEXT_COLOR)
             current_y += bbox_cond_h + LINE_SPACING
+        
+        # Draw Sauna
+        if sauna_current_str and font_cond:
+            draw.text((text_padding_x, current_y), sauna_current_str, font=font_cond, fill=TEXT_COLOR)
+            if sauna_set_str:
+                w_current = draw.textlength(sauna_current_str, font=font_cond)
+                text_color_half = list(TEXT_COLOR) + [128]
+                draw.text((text_padding_x + w_current, current_y), sauna_set_str, font=font_cond, fill=tuple(text_color_half))
+            current_y += bbox_sauna_h + LINE_SPACING
+
         if time_str and font_time:
             draw.text((text_padding_x, current_y), time_str, font=font_time, fill=TEXT_COLOR)
     except Exception as e:
@@ -394,7 +431,14 @@ async def generate_timeform_image():
     """Orchestrates weather fetch, font load, screenshot, processing, overlay."""
     # 1. Fetch Weather Data
     weather_data = get_weather_data(MODIFIED_WEATHER_URL)
-    text_data = {'temp': '--°C', 'condition': 'Weather unavailable', 'time': None}
+    text_data = {'temp': '--°C', 'condition': 'Weather unavailable', 'time': None, 'sauna': None}
+
+    # Fetch Sauna Data
+    try:
+        text_data['sauna'] = get_sauna_status()
+    except Exception as e:
+        print(f"Error fetching sauna status: {e}")
+
     if weather_data and 'current' in weather_data:
         try:
             temp_c = weather_data['current']['temp_c']
@@ -580,6 +624,40 @@ def _ha_explicit_allowed():
             _ha_cache["value"] = False
             _ha_cache["ts"] = now
         return bool(_ha_cache["value"])
+
+
+def get_sauna_status():
+    """
+    Fetches the status of the sauna climate entity.
+    Returns a dict with 'is_on', 'current_temp', 'set_temp' or None if failed/off.
+    """
+    if not HA_BASE_URL or not HA_TOKEN:
+        return None
+
+    url = f"{HA_BASE_URL}/api/states/{HA_SAUNA_ENTITY}"
+    try:
+        resp = requests.get(
+            url,
+            headers={"Authorization": f"Bearer {HA_TOKEN}", "Content-Type": "application/json"},
+            timeout=HA_TIMEOUT_SECONDS,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        state = data.get("state")
+        attributes = data.get("attributes", {})
+        
+        is_on = state == "heat_cool"
+        if is_on:
+             return {
+                 "is_on": True,
+                 "current_temp": attributes.get("current_temperature"),
+                 "set_temp": attributes.get("temperature")
+             }
+        return None
+
+    except Exception as e:
+        print(f"Warning: HA sauna check failed ({e})")
+        return None
 
 
 def _get_enabled_easter_egg_candidates():
