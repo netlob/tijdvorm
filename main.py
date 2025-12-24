@@ -129,6 +129,7 @@ def _delete_old_user_art(tv, keep_ids):
 # Home Assistant explicit toggle (read at easter-egg time)
 HA_EXPLICIT_ENTITY = os.environ.get("HA_EXPLICIT_ENTITY", "input_boolean.explicit_frame_art")
 HA_SAUNA_ENTITY = os.environ.get("HA_SAUNA_ENTITY", "climate.sauna_control")
+HA_POWER_ENTITY = os.environ.get("HA_POWER_ENTITY", "sensor.power_consumed")
 HA_BASE_URL = os.environ.get("HA_BASE_URL", "").rstrip("/")  # e.g. https://ha.example.com
 HA_TOKEN = os.environ.get("HA_TOKEN", "")
 HA_TIMEOUT_SECONDS = float(os.environ.get("HA_TIMEOUT_SECONDS", "2.0"))
@@ -221,13 +222,13 @@ def load_font_with_fallback(font_path, size):
         print(f"[Font Load] Unexpected error loading font '{abs_path}': {e}")
         return None
 
-def load_fonts():
+def load_fonts(scale=1.0):
     """Load all required fonts using the specified path."""
-    print("Loading fonts...")
+    print(f"Loading fonts (scale={scale})...")
     fonts = {
-        'font_temp': load_font_with_fallback(FONT_PATH, TEMP_FONT_SIZE),
-        'font_cond': load_font_with_fallback(FONT_PATH, COND_FONT_SIZE),
-        'font_time': load_font_with_fallback(FONT_PATH, TIME_FONT_SIZE)
+        'font_temp': load_font_with_fallback(FONT_PATH, int(TEMP_FONT_SIZE * scale)),
+        'font_cond': load_font_with_fallback(FONT_PATH, int(COND_FONT_SIZE * scale)),
+        'font_time': load_font_with_fallback(FONT_PATH, int(TIME_FONT_SIZE * scale))
     }
     return fonts
 
@@ -445,8 +446,17 @@ async def generate_sauna_image(sauna_status):
             temp_c_str = f"{temp_c:.0f}°C"
         except Exception: pass
 
-    # 2. Load Fonts
-    fonts = load_fonts()
+    # Fetch Power Data
+    power_watts = get_power_usage()
+    power_str = None
+    if power_watts is not None:
+        # Format: 1.000W
+        # Use comma as thousand sep then replace with dot
+        formatted_w = "{:,.0f}".format(power_watts).replace(",", ".")
+        power_str = f"{formatted_w}W"
+
+    # 2. Load Fonts (50% bigger)
+    fonts = load_fonts(scale=1.5)
     if not fonts.get('font_temp'):
         print("Error: Essential fonts could not be loaded."); return None
 
@@ -471,6 +481,7 @@ async def generate_sauna_image(sauna_status):
     # "Cooking tot"
     # [Set Temp]
     # [Current Temp] [Outdoor Temp]
+    # [Power]
     # [Time]
 
     title_str = "Cooking tot"
@@ -495,19 +506,20 @@ async def generate_sauna_image(sauna_status):
     text_padding_x = TEXT_PADDING
     text_padding_y = TEXT_PADDING * 1.5
     current_y = text_padding_y
+    line_spacing_scaled = LINE_SPACING * 1.5
 
     try:
         # Title
         if font_title:
             draw.text((text_padding_x, current_y), title_str, font=font_title, fill=TEXT_COLOR)
             bbox = draw.textbbox((0, 0), title_str, font=font_title)
-            current_y += (bbox[3] - bbox[1]) + LINE_SPACING
+            current_y += (bbox[3] - bbox[1]) + line_spacing_scaled
 
         # Set Temp
         if font_set:
             draw.text((text_padding_x, current_y), set_temp_str, font=font_set, fill=TEXT_COLOR)
             bbox = draw.textbbox((0, 0), set_temp_str, font=font_set)
-            current_y += (bbox[3] - bbox[1]) + LINE_SPACING
+            current_y += (bbox[3] - bbox[1]) + line_spacing_scaled
 
         # Current + Outdoor
         if font_sub:
@@ -519,10 +531,18 @@ async def generate_sauna_image(sauna_status):
             draw.text((text_padding_x + w_cur, current_y), outdoor_str, font=font_sub, fill=tuple(text_color_half))
             
             bbox = draw.textbbox((0, 0), current_temp_str, font=font_sub)
-            current_y += (bbox[3] - bbox[1]) + LINE_SPACING
+            current_y += (bbox[3] - bbox[1]) + line_spacing_scaled
+        
+        # Power
+        if power_str and font_sub:
+            draw.text((text_padding_x, current_y), power_str, font=font_sub, fill=TEXT_COLOR)
+            bbox = draw.textbbox((0, 0), power_str, font=font_sub)
+            current_y += (bbox[3] - bbox[1]) + line_spacing_scaled
 
         # Time
         if font_time:
+             # Add a bit more spacing before time perhaps?
+             current_y += line_spacing_scaled 
              draw.text((text_padding_x, current_y), time_str, font=font_time, fill=TEXT_COLOR)
 
     except Exception as e:
@@ -781,6 +801,40 @@ def get_sauna_status():
 
     except Exception as e:
         print(f"Warning: HA sauna check failed ({e})")
+        return None
+
+
+def get_power_usage():
+    """
+    Fetches the power consumed sensor.
+    Returns float Watts (converted from kW if needed) or None.
+    Assumes sensor state is in kW if device_class is power/unit is kW, but we'll stick to user's sensor.
+    User provided example has unit_of_measurement='kW'.
+    """
+    if not HA_BASE_URL or not HA_TOKEN:
+        return None
+
+    url = f"{HA_BASE_URL}/api/states/{HA_POWER_ENTITY}"
+    try:
+        resp = requests.get(
+            url,
+            headers={"Authorization": f"Bearer {HA_TOKEN}", "Content-Type": "application/json"},
+            timeout=HA_TIMEOUT_SECONDS,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        
+        # print(f"Power data raw: {data}")
+        state = data.get("state")
+        try:
+            val = float(state)
+            # Assuming kW based on user prompt, convert to W
+            return val * 1000.0
+        except Exception:
+            return None
+            
+    except Exception as e:
+        print(f"Warning: HA power check failed ({e})")
         return None
 
 
