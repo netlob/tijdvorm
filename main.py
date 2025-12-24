@@ -463,6 +463,12 @@ async def generate_sauna_image(sauna_status):
     fonts = load_fonts(scale=1.2)
     if not fonts.get('font_temp'):
         print("Error: Essential fonts could not be loaded."); return None
+    
+    # Load separate smaller font for outdoor elements (scale 0.9)
+    font_outdoor_small = load_font_with_fallback(FONT_PATH, int(COND_FONT_SIZE * 0.9))
+    if not font_outdoor_small:
+        # Fallback to normal font_cond if load fails
+        font_outdoor_small = fonts.get('font_cond')
 
     # 3. Load Background
     bg_path = os.path.abspath("sauna_background.png")
@@ -548,21 +554,25 @@ async def generate_sauna_image(sauna_status):
         right_margin_x = OUTPUT_WIDTH - TEXT_PADDING
         current_y_right = text_padding_y
         
-        if font_title:
-             w_title = draw.textlength(outdoor_title_str, font=font_title)
-             draw.text((right_margin_x - w_title, current_y_right), outdoor_title_str, font=font_title, fill=TEXT_COLOR)
-             bbox = draw.textbbox((0, 0), outdoor_title_str, font=font_title)
+        # Use font_outdoor_small instead of font_title/font_sub for these lines
+        # But maybe title "Buiten" should still be slightly distinct? 
+        # User said "values of outdoor temp and time and weather message a bit smaller"
+        # I'll use font_outdoor_small for ALL lines in top right to keep it consistent and smaller.
+        
+        if font_outdoor_small:
+             w_title = draw.textlength(outdoor_title_str, font=font_outdoor_small)
+             draw.text((right_margin_x - w_title, current_y_right), outdoor_title_str, font=font_outdoor_small, fill=TEXT_COLOR)
+             bbox = draw.textbbox((0, 0), outdoor_title_str, font=font_outdoor_small)
              current_y_right += (bbox[3] - bbox[1]) + line_spacing_scaled
              
-        if font_sub: # Using cond/sub font for the temp/time line
-             w_line2 = draw.textlength(outdoor_line_2, font=font_sub)
-             draw.text((right_margin_x - w_line2, current_y_right), outdoor_line_2, font=font_sub, fill=TEXT_COLOR)
-             bbox = draw.textbbox((0, 0), outdoor_line_2, font=font_sub)
+             w_line2 = draw.textlength(outdoor_line_2, font=font_outdoor_small)
+             draw.text((right_margin_x - w_line2, current_y_right), outdoor_line_2, font=font_outdoor_small, fill=TEXT_COLOR)
+             bbox = draw.textbbox((0, 0), outdoor_line_2, font=font_outdoor_small)
              current_y_right += (bbox[3] - bbox[1]) + line_spacing_scaled
              
              if weather_desc_str:
-                 w_desc = draw.textlength(weather_desc_str, font=font_sub)
-                 draw.text((right_margin_x - w_desc, current_y_right), weather_desc_str, font=font_sub, fill=TEXT_COLOR)
+                 w_desc = draw.textlength(weather_desc_str, font=font_outdoor_small)
+                 draw.text((right_margin_x - w_desc, current_y_right), weather_desc_str, font=font_outdoor_small, fill=TEXT_COLOR)
 
         # --- Bottom Center: Prediction (was Power) ---
         # y = 1800
@@ -1283,8 +1293,8 @@ def main_loop(tv_ip, interval_minutes):
                      live_meta = {"type": "sauna", "filename": os.path.basename(image_path) if image_path else None}
                 else:
                     # Run the async image generation (Timeform)
-                    image_path = asyncio.run(generate_timeform_image())
-                    live_meta = {"type": "timeform", "filename": os.path.basename(image_path) if image_path else None}
+                image_path = asyncio.run(generate_timeform_image())
+                live_meta = {"type": "timeform", "filename": os.path.basename(image_path) if image_path else None}
 
             if image_path:
                 # Run the synchronous TV update
@@ -1322,5 +1332,4 @@ if __name__ == "__main__":
        print("!!! Please edit the script and set TV_IP to your Samsung Frame TV's actual IP address.\n")
        # exit(1) # Optional: Uncomment to prevent running with placeholder
     # update_tv_art(TV_IP, '/Users/sjoerdbolten/Documents/Projects/tijdvorm/py/timeform_art.png')
-    main_loop(TV_IP, UPDATE_INTERVAL_MINUTES) 
     main_loop(TV_IP, UPDATE_INTERVAL_MINUTES) 
