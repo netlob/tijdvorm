@@ -441,10 +441,12 @@ async def generate_sauna_image(sauna_status):
     # 1. Fetch Weather Data (for outdoor temp)
     weather_data = get_weather_data(MODIFIED_WEATHER_URL)
     temp_c_str = '--°C'
+    weather_desc_str = ""
     if weather_data and 'current' in weather_data:
         try:
             temp_c = weather_data['current']['temp_c']
             temp_c_str = f"{temp_c:.0f}°C"
+            weather_desc_str = weather_data['current']['condition']['text']
         except Exception: pass
 
     # Fetch Power Data
@@ -480,15 +482,21 @@ async def generate_sauna_image(sauna_status):
     draw = ImageDraw.Draw(img)
     
     # 4. Draw Text
-    # Top Section (Sauna Status)
+    # Top-Left Section (Sauna Status)
     # "Cooking tot"
     # [Set Temp]
     # [Current Temp]
-    # [Power]
-    # [Prediction]
     
-    # Bottom Section (Outdoor + Time) - Centered at ~1800px
-    # [Outdoor Temp] | [Time]
+    # Top-Right Section (Outdoor Status)
+    # "Buiten"
+    # [Outdoor Temp] [Time]
+    # [Weather Desc]
+
+    # Middle Center (Prediction)
+    # [Prediction] (y=880)
+
+    # Bottom Center (Power)
+    # [Power] (y=1800)
 
     title_str = "Cooking tot"
     set_temp_str = f"{sauna_status.get('set_temp', 0):.0f}°C"
@@ -496,7 +504,10 @@ async def generate_sauna_image(sauna_status):
     cur_val = float(sauna_status.get('current_temp', 0))
     current_temp_str = f"{cur_val:.0f}°C"
     
-    # outdoor_str = f" / {temp_c_str}" # Moved to bottom
+    # Outdoor strings
+    outdoor_title_str = "Buiten"
+    time_str = time.strftime("%H:%M")
+    outdoor_line_2 = f"{temp_c_str}  {time_str}"
     
     # Calculate Prediction
     prediction_str = update_sauna_prediction(cur_val, float(sauna_status.get('set_temp', 0)))
@@ -513,46 +524,54 @@ async def generate_sauna_image(sauna_status):
     line_spacing_scaled = LINE_SPACING * 1.2
 
     try:
-        # Title
+        # --- Top Left: Sauna Status ---
         if font_title:
             draw.text((text_padding_x, current_y), title_str, font=font_title, fill=TEXT_COLOR)
             bbox = draw.textbbox((0, 0), title_str, font=font_title)
             current_y += (bbox[3] - bbox[1]) + line_spacing_scaled
 
-        # Set Temp
         if font_set:
             draw.text((text_padding_x, current_y), set_temp_str, font=font_set, fill=TEXT_COLOR)
             bbox = draw.textbbox((0, 0), set_temp_str, font=font_set)
             current_y += (bbox[3] - bbox[1]) + line_spacing_scaled
 
-        # Current Temp (removed outdoor from here)
         if font_sub:
             draw.text((text_padding_x, current_y), current_temp_str, font=font_sub, fill=TEXT_COLOR)
-            bbox = draw.textbbox((0, 0), current_temp_str, font=font_sub)
-            current_y += (bbox[3] - bbox[1]) + line_spacing_scaled
+            
+        # --- Top Right: Outdoor Status ---
+        # Aligned to right margin (OUTPUT_WIDTH - TEXT_PADDING)
+        right_margin_x = OUTPUT_WIDTH - TEXT_PADDING
+        current_y_right = text_padding_y
         
-        # Power
-        if power_str and font_sub:
-            draw.text((text_padding_x, current_y), power_str, font=font_sub, fill=TEXT_COLOR)
-            bbox = draw.textbbox((0, 0), power_str, font=font_sub)
-            current_y += (bbox[3] - bbox[1]) + line_spacing_scaled
+        if font_title:
+             w_title = draw.textlength(outdoor_title_str, font=font_title)
+             draw.text((right_margin_x - w_title, current_y_right), outdoor_title_str, font=font_title, fill=TEXT_COLOR)
+             bbox = draw.textbbox((0, 0), outdoor_title_str, font=font_title)
+             current_y_right += (bbox[3] - bbox[1]) + line_spacing_scaled
+             
+        if font_sub: # Using cond/sub font for the temp/time line
+             w_line2 = draw.textlength(outdoor_line_2, font=font_sub)
+             draw.text((right_margin_x - w_line2, current_y_right), outdoor_line_2, font=font_sub, fill=TEXT_COLOR)
+             bbox = draw.textbbox((0, 0), outdoor_line_2, font=font_sub)
+             current_y_right += (bbox[3] - bbox[1]) + line_spacing_scaled
+             
+             if weather_desc_str:
+                 w_desc = draw.textlength(weather_desc_str, font=font_sub)
+                 draw.text((right_margin_x - w_desc, current_y_right), weather_desc_str, font=font_sub, fill=TEXT_COLOR)
 
-        # Prediction
+        # --- Middle Center: Prediction ---
+        # y = 880
         if prediction_str and font_sub:
-             draw.text((text_padding_x, current_y), prediction_str, font=font_sub, fill=TEXT_COLOR)
-
-        # Bottom Section: Outdoor Temp | Time
-        # Centered horizontally, y starts at ~1800
-        if font_time: # Using time font for this line
-             time_str = time.strftime("%H:%M")
-             bottom_line = f"{temp_c_str}   |   {time_str}"
-             
-             # Calculate width to center
-             w_bottom = draw.textlength(bottom_line, font=font_time)
+             w_pred = draw.textlength(prediction_str, font=font_sub)
              center_x = OUTPUT_WIDTH // 2
-             start_x = center_x - (w_bottom / 2)
-             
-             draw.text((start_x, 1800), bottom_line, font=font_time, fill=TEXT_COLOR)
+             draw.text((center_x - (w_pred / 2), 880), prediction_str, font=font_sub, fill=TEXT_COLOR)
+
+        # --- Bottom Center: Power ---
+        # y = 1800
+        if power_str and font_time: # Using time font for power? Or sub? User asked to replace previous bottom line
+             w_power = draw.textlength(power_str, font=font_time)
+             center_x = OUTPUT_WIDTH // 2
+             draw.text((center_x - (w_power / 2), 1800), power_str, font=font_time, fill=TEXT_COLOR)
 
     except Exception as e:
         print(f"Error drawing sauna text: {e}")
