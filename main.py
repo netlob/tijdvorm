@@ -360,7 +360,8 @@ def add_text_overlay(image, text_data, fonts, align_artwork_top):
             sauna_set_str = f" / {tgt:.0f}°C"
         except Exception:
             pass
-
+    print(f"Sauna current string: {sauna_current_str}")
+    print(f"Sauna set string: {sauna_set_str}")
     # Get the single font type loaded for different sizes
     font_temp = fonts.get('font_temp')
     font_cond = fonts.get('font_cond')
