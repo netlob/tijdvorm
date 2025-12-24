@@ -648,7 +648,7 @@ def get_sauna_status():
         data = resp.json()
         
         # Debug logs
-        # print(f"Sauna data raw: {data}")
+        print(f"Sauna data raw: {data}")
         
         state = data.get("state")
         attributes = data.get("attributes", {})
@@ -660,7 +660,7 @@ def get_sauna_status():
                  "current_temp": attributes.get("current_temperature"),
                  "set_temp": attributes.get("temperature")
              }
-        # print(f"Sauna is not on (state: {state})")
+        print(f"Sauna is not on (state: {state})")
         return None
 
     except Exception as e:
