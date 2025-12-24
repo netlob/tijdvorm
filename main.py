@@ -437,6 +437,7 @@ async def generate_timeform_image():
     # Fetch Sauna Data
     try:
         text_data['sauna'] = get_sauna_status()
+        print(f"Sauna data: {text_data['sauna']}")
     except Exception as e:
         print(f"Error fetching sauna status: {e}")
 
