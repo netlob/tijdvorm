@@ -542,7 +542,15 @@ async def generate_sauna_image(sauna_status):
             current_y += (bbox[3] - bbox[1]) + line_spacing_scaled
 
         if font_set:
-            draw.text((text_padding_x, current_y), combined_temp_str, font=font_set, fill=TEXT_COLOR)
+            # Draw current temp bold (simulated with stroke)
+            draw.text((text_padding_x, current_y), current_temp_str, font=font_set, fill=TEXT_COLOR, stroke_width=2)
+            
+            # Draw rest of the string (regular)
+            # Calculate width of current temp to offset the next part
+            w_current = draw.textlength(current_temp_str, font=font_set)
+            remaining_str = f" / {set_temp_str}"
+            draw.text((text_padding_x + w_current, current_y), remaining_str, font=font_set, fill=TEXT_COLOR)
+            
             bbox = draw.textbbox((0, 0), combined_temp_str, font=font_set)
             current_y += (bbox[3] - bbox[1]) + line_spacing_scaled
 
