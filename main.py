@@ -645,7 +645,8 @@ def get_sauna_status():
         data = resp.json()
         state = data.get("state")
         attributes = data.get("attributes", {})
-        
+        print(f"Sauna state: {state}")
+        print(f"Sauna attributes: {attributes}")
         is_on = state == "heat_cool"
         if is_on:
              return {
