@@ -352,20 +352,22 @@ def add_text_overlay(image, text_data, fonts, align_artwork_top):
     cond_str = text_data.get('condition', 'Unknown')
     time_str = time.strftime("%H:%M")
 
-    # Sauna Text Logic
-    sauna_data = text_data.get('sauna')
-    sauna_current_str = None
-    sauna_set_str = None
-    if sauna_data and sauna_data.get('is_on'):
-        try:
-            cur = float(sauna_data.get('current_temp', 0))
-            tgt = float(sauna_data.get('set_temp', 0))
-            sauna_current_str = f"Sauna: {cur:.0f}°C"
-            sauna_set_str = f" / {tgt:.0f}°C"
-        except Exception:
-            pass
-    print(f"Sauna current string: {sauna_current_str}")
-    print(f"Sauna set string: {sauna_set_str}")
+    # Sauna Text Logic (DISABLED in main view, now handled by dedicated sauna view)
+    # sauna_data = text_data.get('sauna')
+    # sauna_current_str = None
+    # sauna_set_str = None
+    # if sauna_data and sauna_data.get('is_on'):
+    #     try:
+    #         cur = float(sauna_data.get('current_temp', 0))
+    #         tgt = float(sauna_data.get('set_temp', 0))
+    #         sauna_current_str = f"Sauna: {cur:.0f}°C"
+    #         sauna_set_str = f" / {tgt:.0f}°C"
+    #     except Exception:
+    #         pass
+    # print(f"Sauna current string: {sauna_current_str}")
+    # print(f"Sauna set string: {sauna_set_str}")
+    sauna_current_str = None # Ensure it's None so below logic skips it
+
     # Get the single font type loaded for different sizes
     font_temp = fonts.get('font_temp')
     font_cond = fonts.get('font_cond')
@@ -430,6 +432,116 @@ def add_text_overlay(image, text_data, fonts, align_artwork_top):
 
     return image
 
+async def generate_sauna_image(sauna_status):
+    """Generates the sauna status image using the background."""
+    print("Generating Sauna image...")
+    
+    # 1. Fetch Weather Data (for outdoor temp)
+    weather_data = get_weather_data(MODIFIED_WEATHER_URL)
+    temp_c_str = '--°C'
+    if weather_data and 'current' in weather_data:
+        try:
+            temp_c = weather_data['current']['temp_c']
+            temp_c_str = f"{temp_c:.0f}°C"
+        except Exception: pass
+
+    # 2. Load Fonts
+    fonts = load_fonts()
+    if not fonts.get('font_temp'):
+        print("Error: Essential fonts could not be loaded."); return None
+
+    # 3. Load Background
+    bg_path = os.path.abspath("sauna_background.png")
+    if not os.path.exists(bg_path):
+        print(f"Error: Sauna background not found at {bg_path}")
+        return None
+    
+    try:
+        img = Image.open(bg_path).convert("RGBA")
+        # Resize to output dimensions if needed
+        if img.size != (OUTPUT_WIDTH, OUTPUT_HEIGHT):
+             img = img.resize((OUTPUT_WIDTH, OUTPUT_HEIGHT), Image.Resampling.LANCZOS)
+    except Exception as e:
+        print(f"Error loading sauna background: {e}")
+        return None
+
+    draw = ImageDraw.Draw(img)
+    
+    # 4. Draw Text
+    # "Cooking tot"
+    # [Set Temp]
+    # [Current Temp] [Outdoor Temp]
+    # [Time]
+
+    title_str = "Cooking tot"
+    set_temp_str = f"{sauna_status.get('set_temp', 0):.0f}°C"
+    
+    cur_val = float(sauna_status.get('current_temp', 0))
+    current_temp_str = f"{cur_val:.0f}°C"
+    
+    outdoor_str = f" / {temp_c_str}"
+    time_str = time.strftime("%H:%M")
+
+    font_title = fonts.get('font_cond') # Use condition font for title
+    font_set = fonts.get('font_temp') # Use big temp font for set temp
+    font_sub = fonts.get('font_cond') # Use condition font for sub-line
+    font_time = fonts.get('font_time')
+
+    # Calculate positions
+    # We use similar logic to add_text_overlay but specific layout
+    # Center vertically? Or stick to user padding? User said "same padding".
+    # Assuming Top-Left alignment like the timeform art usually is.
+
+    text_padding_x = TEXT_PADDING
+    text_padding_y = TEXT_PADDING * 1.5
+    current_y = text_padding_y
+
+    try:
+        # Title
+        if font_title:
+            draw.text((text_padding_x, current_y), title_str, font=font_title, fill=TEXT_COLOR)
+            bbox = draw.textbbox((0, 0), title_str, font=font_title)
+            current_y += (bbox[3] - bbox[1]) + LINE_SPACING
+
+        # Set Temp
+        if font_set:
+            draw.text((text_padding_x, current_y), set_temp_str, font=font_set, fill=TEXT_COLOR)
+            bbox = draw.textbbox((0, 0), set_temp_str, font=font_set)
+            current_y += (bbox[3] - bbox[1]) + LINE_SPACING
+
+        # Current + Outdoor
+        if font_sub:
+            draw.text((text_padding_x, current_y), current_temp_str, font=font_sub, fill=TEXT_COLOR)
+            w_cur = draw.textlength(current_temp_str, font=font_sub)
+            
+            # Outdoor with opacity
+            text_color_half = list(TEXT_COLOR) + [128]
+            draw.text((text_padding_x + w_cur, current_y), outdoor_str, font=font_sub, fill=tuple(text_color_half))
+            
+            bbox = draw.textbbox((0, 0), current_temp_str, font=font_sub)
+            current_y += (bbox[3] - bbox[1]) + LINE_SPACING
+
+        # Time
+        if font_time:
+             draw.text((text_padding_x, current_y), time_str, font=font_time, fill=TEXT_COLOR)
+
+    except Exception as e:
+        print(f"Error drawing sauna text: {e}")
+        return None
+
+    # Rotate 180
+    final_image = img.rotate(180)
+
+    # Save
+    try:
+        abs_output_path = os.path.abspath(OUTPUT_FILENAME)
+        final_image.save(abs_output_path)
+        print(f"Sauna image generated and saved successfully as {abs_output_path}")
+        return abs_output_path
+    except Exception as e:
+        print(f"Error saving sauna image: {e}")
+        return None
+
 # --- Image Generation Orchestrator (async) ---
 
 async def generate_timeform_image():
@@ -439,11 +551,11 @@ async def generate_timeform_image():
     text_data = {'temp': '--°C', 'condition': 'Weather unavailable', 'time': None, 'sauna': None}
 
     # Fetch Sauna Data
-    try:
-        text_data['sauna'] = get_sauna_status()
-        print(f"Sauna data: {text_data['sauna']}")
-    except Exception as e:
-        print(f"Error fetching sauna status: {e}")
+    # try:
+    #     text_data['sauna'] = get_sauna_status()
+    #     print(f"Sauna data: {text_data['sauna']}")
+    # except Exception as e:
+    #     print(f"Error fetching sauna status: {e}")
 
     if weather_data and 'current' in weather_data:
         try:
@@ -982,11 +1094,19 @@ def main_loop(tv_ip, interval_minutes):
                 else:
                      print("No easter eggs found. Falling back to Timeform.")
 
-            # If not easter egg or easter egg failed, generate Timeform
+            # If not easter egg or easter egg failed, generate Timeform/Sauna
             if not image_path:
-                # Run the async image generation
-                image_path = asyncio.run(generate_timeform_image())
-                live_meta = {"type": "timeform", "filename": os.path.basename(image_path) if image_path else None}
+                
+                # Check Sauna Status
+                sauna_status = get_sauna_status()
+                
+                if sauna_status and sauna_status.get('is_on'):
+                     image_path = asyncio.run(generate_sauna_image(sauna_status))
+                     live_meta = {"type": "sauna", "filename": os.path.basename(image_path) if image_path else None}
+                else:
+                    # Run the async image generation (Timeform)
+                    image_path = asyncio.run(generate_timeform_image())
+                    live_meta = {"type": "timeform", "filename": os.path.basename(image_path) if image_path else None}
 
             if image_path:
                 # Run the synchronous TV update
