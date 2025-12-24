@@ -456,8 +456,9 @@ async def generate_sauna_image(sauna_status):
         formatted_w = "{:,.0f}".format(power_watts).replace(",", ".")
         power_str = f"{formatted_w}W"
 
-    # 2. Load Fonts (50% bigger)
-    fonts = load_fonts(scale=1.5)
+    # 2. Load Fonts (scaled)
+    # Reducing scale as requested (was 1.5)
+    fonts = load_fonts(scale=1.2)
     if not fonts.get('font_temp'):
         print("Error: Essential fonts could not be loaded."); return None
 
@@ -479,12 +480,15 @@ async def generate_sauna_image(sauna_status):
     draw = ImageDraw.Draw(img)
     
     # 4. Draw Text
+    # Top Section (Sauna Status)
     # "Cooking tot"
     # [Set Temp]
-    # [Current Temp] [Outdoor Temp]
+    # [Current Temp]
     # [Power]
-    # [Time]
     # [Prediction]
+    
+    # Bottom Section (Outdoor + Time) - Centered at ~1800px
+    # [Outdoor Temp] | [Time]
 
     title_str = "Cooking tot"
     set_temp_str = f"{sauna_status.get('set_temp', 0):.0f}°C"
@@ -492,8 +496,7 @@ async def generate_sauna_image(sauna_status):
     cur_val = float(sauna_status.get('current_temp', 0))
     current_temp_str = f"{cur_val:.0f}°C"
     
-    outdoor_str = f" / {temp_c_str}"
-    time_str = time.strftime("%H:%M")
+    # outdoor_str = f" / {temp_c_str}" # Moved to bottom
     
     # Calculate Prediction
     prediction_str = update_sauna_prediction(cur_val, float(sauna_status.get('set_temp', 0)))
@@ -503,15 +506,11 @@ async def generate_sauna_image(sauna_status):
     font_sub = fonts.get('font_cond') # Use condition font for sub-line
     font_time = fonts.get('font_time')
 
-    # Calculate positions
-    # We use similar logic to add_text_overlay but specific layout
-    # Center vertically? Or stick to user padding? User said "same padding".
-    # Assuming Top-Left alignment like the timeform art usually is.
-
+    # Top Section Layout
     text_padding_x = TEXT_PADDING
     text_padding_y = TEXT_PADDING * 1.5
     current_y = text_padding_y
-    line_spacing_scaled = LINE_SPACING * 1.5
+    line_spacing_scaled = LINE_SPACING * 1.2
 
     try:
         # Title
@@ -526,15 +525,9 @@ async def generate_sauna_image(sauna_status):
             bbox = draw.textbbox((0, 0), set_temp_str, font=font_set)
             current_y += (bbox[3] - bbox[1]) + line_spacing_scaled
 
-        # Current + Outdoor
+        # Current Temp (removed outdoor from here)
         if font_sub:
             draw.text((text_padding_x, current_y), current_temp_str, font=font_sub, fill=TEXT_COLOR)
-            w_cur = draw.textlength(current_temp_str, font=font_sub)
-            
-            # Outdoor with opacity
-            text_color_half = list(TEXT_COLOR) + [128]
-            draw.text((text_padding_x + w_cur, current_y), outdoor_str, font=font_sub, fill=tuple(text_color_half))
-            
             bbox = draw.textbbox((0, 0), current_temp_str, font=font_sub)
             current_y += (bbox[3] - bbox[1]) + line_spacing_scaled
         
@@ -544,17 +537,22 @@ async def generate_sauna_image(sauna_status):
             bbox = draw.textbbox((0, 0), power_str, font=font_sub)
             current_y += (bbox[3] - bbox[1]) + line_spacing_scaled
 
-        # Time
-        if font_time:
-             # Add a bit more spacing before time perhaps?
-             current_y += line_spacing_scaled 
-             draw.text((text_padding_x, current_y), time_str, font=font_time, fill=TEXT_COLOR)
-             bbox = draw.textbbox((0, 0), time_str, font=font_time)
-             current_y += (bbox[3] - bbox[1]) + line_spacing_scaled
-
-        # Prediction (below time, or maybe swap?)
+        # Prediction
         if prediction_str and font_sub:
              draw.text((text_padding_x, current_y), prediction_str, font=font_sub, fill=TEXT_COLOR)
+
+        # Bottom Section: Outdoor Temp | Time
+        # Centered horizontally, y starts at ~1800
+        if font_time: # Using time font for this line
+             time_str = time.strftime("%H:%M")
+             bottom_line = f"{temp_c_str}   |   {time_str}"
+             
+             # Calculate width to center
+             w_bottom = draw.textlength(bottom_line, font=font_time)
+             center_x = OUTPUT_WIDTH // 2
+             start_x = center_x - (w_bottom / 2)
+             
+             draw.text((start_x, 1800), bottom_line, font=font_time, fill=TEXT_COLOR)
 
     except Exception as e:
         print(f"Error drawing sauna text: {e}")
@@ -865,7 +863,7 @@ def update_sauna_prediction(current_temp, set_temp):
         if minutes_left > 120:
             return "> 2 hours"
             
-        return f"Ready in ~{minutes_left:.0f} min"
+        return f"Bastu in ~{minutes_left:.0f} min"
 
     except Exception as e:
         print(f"Error in sauna prediction: {e}")
