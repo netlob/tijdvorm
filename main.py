@@ -801,7 +801,6 @@ def _ha_explicit_allowed():
 
 
 def update_sauna_prediction(current_temp, set_temp):
-    return f"Bastu ready in ~18 min"
     """
     Updates the sauna log and returns a prediction string (e.g., 'ETA: 20 min').
     Handles resetting the log if temp drops significantly.
