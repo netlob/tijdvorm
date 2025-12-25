@@ -6,9 +6,9 @@ from PIL import Image, ImageDraw, ImageFont
 import sys
 
 # Configuration
-FACES_DIR = os.path.abspath("./faces")
-ENCODINGS_FILE = os.path.abspath("./face_encodings.pickle")
-INPUT_FILE = "debug/IMG_3012.JPG"
+FACES_DIR = os.path.abspath("../faces")
+ENCODINGS_FILE = os.path.abspath("../face_encodings.pickle")
+INPUT_FILE = "./IMG_3012.JPG"
 OUTPUT_FILE = INPUT_FILE.replace(".JPG", "_output.JPG")
 
 # Target Dimensions (Same as server.py)

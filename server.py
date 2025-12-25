@@ -12,28 +12,33 @@ from datetime import datetime, timezone
 from typing import Any
 from concurrent.futures import ThreadPoolExecutor
 
-# Import shared logic from main.py
-try:
-    import main as main_script
-except ImportError:
-    main_script = None
-    print("[tijdvorm] Warning: Could not import main.py. Doorbell feature will be limited.")
+# Import shared logic from tijdvorm modules
+from tijdvorm.config import (
+    EASTER_EGGS_DIR, EASTER_EGGS_MANIFEST, EASTER_EGGS_OVERRIDE,
+    EASTER_EGGS_SETTINGS, LIVE_DIR, LIVE_STATE_FILENAME, TV_IP,
+    DATA_DIR, FACES_DIR, ENCODINGS_FILE
+)
+from tijdvorm.integrations.samsung import connect_to_tv, update_tv_art
+from tijdvorm.integrations.home_assistant import get_sauna_status
+from tijdvorm.features.easter_eggs import (
+    prepare_rotated_image, preserved_content_ids,
+    load_egg_manifest, save_egg_manifest,
+)
+from tijdvorm.features.sauna import generate_sauna_image
+from tijdvorm.features.timeform import generate_timeform_image
+from tijdvorm.features.preview import write_live_preview
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+# Constants from config are used where possible
+# FACES_DIR, ENCODINGS_FILE imported from config
 
-EASTER_EGGS_DIR = os.path.abspath("./eastereggs")
-FACES_DIR = os.path.abspath("./faces")
-ENCODINGS_FILE = os.path.abspath("./face_encodings.pickle")
-MANIFEST_PATH = os.path.join(EASTER_EGGS_DIR, "manifest.json")
-
-OVERRIDE_PATH = os.path.join(EASTER_EGGS_DIR, "override.json")
-SETTINGS_PATH = os.path.join(EASTER_EGGS_DIR, "settings.json")
-
-LIVE_DIR = os.path.abspath("./live")
-LIVE_STATE_PATH = os.path.join(LIVE_DIR, "state.json")
+MANIFEST_PATH = EASTER_EGGS_MANIFEST
+OVERRIDE_PATH = EASTER_EGGS_OVERRIDE
+SETTINGS_PATH = EASTER_EGGS_SETTINGS
+LIVE_STATE_PATH = os.path.join(LIVE_DIR, LIVE_STATE_FILENAME)
 
 DEFAULT_SETTINGS: dict[str, Any] = {
     # 1 in N chance per cycle. Set to 0 to disable easter eggs.
@@ -48,6 +53,7 @@ def _utc_now_iso() -> str:
 def _ensure_dirs() -> None:
     os.makedirs(EASTER_EGGS_DIR, exist_ok=True)
     os.makedirs(LIVE_DIR, exist_ok=True)
+    os.makedirs(DATA_DIR, exist_ok=True)
 
 
 def _is_allowed_image(filename: str) -> bool:
@@ -473,7 +479,7 @@ def load_known_faces():
         except Exception as e:
             print(f"[Face Rec] Failed to load cache: {e}", flush=True)
 
-    print("[Face Rec] No cache found or load failed. Please run 'python train_faces.py'.", flush=True)
+    print("[Face Rec] No cache found or load failed. Please run 'python scripts/train_faces.py'.", flush=True)
     print("[Face Rec] Starting with empty face database.", flush=True)
 
 # Load faces on startup
@@ -556,7 +562,7 @@ async def doorbell_recognition_loop():
                 font_size = 40
                 try:
                     # Try loading a font
-                    font = ImageFont.truetype("./fonts/Inter-Regular.otf", font_size)
+                    font = ImageFont.truetype(os.path.join("assets", "fonts", "Inter-Regular.otf"), font_size)
                 except:
                     font = ImageFont.load_default()
 
@@ -583,11 +589,11 @@ async def doorbell_recognition_loop():
                 img_cropped.save(file_path, quality=95)
                 
                 # Push to TV
-                if main_script and not TV_BUSY:
+                if not TV_BUSY:
                     TV_BUSY = True
                     try:
                         print(f"[Doorbell Loop] Updating TV with recognized faces...", flush=True)
-                        rotated_path = main_script.prepare_rotated_image(file_path)
+                        rotated_path = prepare_rotated_image(file_path)
                         if rotated_path:
                             # Run synchronous TV update in thread
                             loop = asyncio.get_running_loop()
@@ -610,11 +616,10 @@ async def doorbell_recognition_loop():
 
 def _push_to_tv_sync(image_path):
     """Helper to run TV update synchronously."""
-    if not main_script: return
-    tv = main_script.connect_to_tv(main_script.TV_IP)
+    tv = connect_to_tv(TV_IP)
     if tv:
-        preserve = main_script._preserved_content_ids()
-        main_script.update_tv_art(tv, image_path, preserve_ids=preserve)
+        preserve = preserved_content_ids()
+        update_tv_art(tv, image_path, preserve_ids=preserve)
 
 
 def _handle_doorbell(data: dict[str, Any], background_tasks: BackgroundTasks) -> dict[str, Any]:
@@ -676,7 +681,7 @@ def _handle_doorbell(data: dict[str, Any], background_tasks: BackgroundTasks) ->
     _save_override(filename)
     
     # 4. Immediate TV Update (First Frame)
-    if main_script and not TV_BUSY:
+    if not TV_BUSY:
         background_tasks.add_task(_initial_push, file_path)
     
     return {"ok": True, "status": "override_set_pending_update"}
@@ -687,12 +692,11 @@ async def _initial_push(file_path: str):
     if TV_BUSY: return
     TV_BUSY = True
     try:
-        if main_script:
-            print("[Doorbell] Rotating initial image...", flush=True)
-            rotated_path = main_script.prepare_rotated_image(file_path)
-            if rotated_path:
-                loop = asyncio.get_running_loop()
-                await loop.run_in_executor(None, _push_to_tv_sync, rotated_path)
+        print("[Doorbell] Rotating initial image...", flush=True)
+        rotated_path = prepare_rotated_image(file_path)
+        if rotated_path:
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, _push_to_tv_sync, rotated_path)
     except Exception as e:
          print(f"[Doorbell] Initial push failed: {e}", flush=True)
     finally:
@@ -709,47 +713,46 @@ async def _handle_doorbell_off() -> dict[str, Any]:
     _save_override(None)
     
     # 2. Restore default art immediately
-    if main_script:
-        # Wait if TV is busy (e.g. upload in progress)
-        retries = 0
-        while TV_BUSY and retries < 15:
-             await asyncio.sleep(1)
-             retries += 1
+    # Wait if TV is busy (e.g. upload in progress)
+    retries = 0
+    while TV_BUSY and retries < 15:
+            await asyncio.sleep(1)
+            retries += 1
 
-        try:
-            TV_BUSY = True
-            print("[Doorbell] Doorbell OFF received. Restoring default art...", flush=True)
-            
-            # Check Sauna Logic (replicate main_loop behavior)
-            sauna_status = main_script.get_sauna_status()
-            image_path = None
-            live_meta = {}
+    try:
+        TV_BUSY = True
+        print("[Doorbell] Doorbell OFF received. Restoring default art...", flush=True)
+        
+        # Check Sauna Logic (replicate main_loop behavior)
+        sauna_status = get_sauna_status()
+        image_path = None
+        live_meta = {}
 
-            if sauna_status and sauna_status.get('is_on'):
-                 print("[Doorbell] Sauna is ON. Generating sauna image...", flush=True)
-                 image_path = await main_script.generate_sauna_image(sauna_status)
-                 live_meta = {"type": "sauna", "filename": os.path.basename(image_path) if image_path else None}
-            else:
-                 print("[Doorbell] Generating Timeform image...", flush=True)
-                 image_path = await main_script.generate_timeform_image()
-                 live_meta = {"type": "timeform", "filename": os.path.basename(image_path) if image_path else None}
+        if sauna_status and sauna_status.get('is_on'):
+                print("[Doorbell] Sauna is ON. Generating sauna image...", flush=True)
+                image_path = await generate_sauna_image(sauna_status)
+                live_meta = {"type": "sauna", "filename": os.path.basename(image_path) if image_path else None}
+        else:
+                print("[Doorbell] Generating Timeform image...", flush=True)
+                image_path = await generate_timeform_image()
+                live_meta = {"type": "timeform", "filename": os.path.basename(image_path) if image_path else None}
 
-            if image_path:
-                 print(f"[Doorbell] Connecting to TV at {main_script.TV_IP}...", flush=True)
-                 # Run sync connection in thread
-                 loop = asyncio.get_running_loop()
-                 await loop.run_in_executor(None, _push_to_tv_sync, image_path)
-                 
-                 # Update live preview
-                 main_script._write_live_preview(image_path, live_meta)
-                 return {"ok": True, "status": "restored"}
-            else:
-                 print("[Doorbell] Failed to generate restore image.", flush=True)
+        if image_path:
+                print(f"[Doorbell] Connecting to TV at {TV_IP}...", flush=True)
+                # Run sync connection in thread
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(None, _push_to_tv_sync, image_path)
+                
+                # Update live preview
+                write_live_preview(image_path, live_meta)
+                return {"ok": True, "status": "restored"}
+        else:
+                print("[Doorbell] Failed to generate restore image.", flush=True)
 
-        except Exception as e:
-            print(f"[Doorbell] Error restoring TV: {e}", flush=True)
-        finally:
-            TV_BUSY = False
+    except Exception as e:
+        print(f"[Doorbell] Error restoring TV: {e}", flush=True)
+    finally:
+        TV_BUSY = False
 
     return {"ok": True, "status": "override_cleared_pending_update"}
 
@@ -791,5 +794,3 @@ if __name__ == "__main__":
         print(f"[tijdvorm] failed to start server: {e}", flush=True)
         print(f"[tijdvorm] is something already using port {port}? try: lsof -i :{port}", flush=True)
         raise
-
-

@@ -3,8 +3,10 @@ import face_recognition
 import pickle
 import sys
 
-FACES_DIR = os.path.abspath("./faces")
-ENCODINGS_FILE = os.path.abspath("./face_encodings.pickle")
+# Hack: Append project root to sys.path if running as script
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+from tijdvorm.config import FACES_DIR, ENCODINGS_FILE
 
 def train_faces():
     """Loads images from faces/ directory and saves encodings to a pickle file."""
@@ -49,11 +51,12 @@ def train_faces():
     # Save to pickle
     print(f"[Training] Saving {len(names)} encodings to {ENCODINGS_FILE}...", flush=True)
     data = {"encodings": encodings, "names": names}
-    with open(ENCODINGS_FILE, "wb") as f:
-        pickle.dump(data, f)
-    
-    print("[Training] Done.", flush=True)
+    try:
+        with open(ENCODINGS_FILE, "wb") as f:
+            pickle.dump(data, f)
+        print("[Training] Done.", flush=True)
+    except Exception as e:
+        print(f"[Training] Error saving encodings file: {e}")
 
 if __name__ == "__main__":
     train_faces()
-
