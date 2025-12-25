@@ -131,6 +131,7 @@ def _delete_old_user_art(tv, keep_ids):
 HA_EXPLICIT_ENTITY = os.environ.get("HA_EXPLICIT_ENTITY", "input_boolean.explicit_frame_art")
 HA_SAUNA_ENTITY = os.environ.get("HA_SAUNA_ENTITY", "climate.sauna_control")
 HA_POWER_ENTITY = os.environ.get("HA_POWER_ENTITY", "sensor.power_consumed")
+HA_TEMP_ENTITY = os.environ.get("HA_TEMP_ENTITY", "sensor.inieuw549_temperature")
 HA_BASE_URL = os.environ.get("HA_BASE_URL", "").rstrip("/")  # e.g. https://ha.example.com
 HA_TOKEN = os.environ.get("HA_TOKEN", "")
 HA_TIMEOUT_SECONDS = float(os.environ.get("HA_TIMEOUT_SECONDS", "2.0"))
@@ -449,6 +450,11 @@ async def generate_sauna_image(sauna_status):
             weather_desc_str = weather_data['current']['condition']['text']
         except Exception: pass
 
+    # Override with Home Assistant Temperature if available
+    ha_temp = get_home_temperature()
+    if ha_temp is not None:
+        temp_c_str = f"{ha_temp:.0f}°C"
+
     # Fetch Power Data
     power_watts = get_power_usage()
     power_str = None
@@ -622,6 +628,11 @@ async def generate_timeform_image():
                  localtime = weather_data['location']['localtime']
                  time_parts = localtime.split(' '); text_data['time'] = time_parts[1] if len(time_parts) == 2 else None
         except KeyError as e: print(f"Warning: Could not extract weather data field: {e}")
+
+    # Override with Home Assistant Temperature if available
+    ha_temp = get_home_temperature()
+    if ha_temp is not None:
+        text_data['temp'] = f"{ha_temp:.0f}°C"
 
     if SIMULATE_HOUR is not None: text_data['time'] = f"{SIMULATE_HOUR:02d}:00"
     elif text_data['time'] is None: print("Warning: Could not determine time string.")
@@ -968,6 +979,36 @@ def get_power_usage():
             
     except Exception as e:
         print(f"Warning: HA power check failed ({e})")
+        return None
+
+
+def get_home_temperature():
+    """
+    Fetches the home assistant temperature entity.
+    Returns float (degrees C) or None.
+    """
+    if not HA_BASE_URL or not HA_TOKEN:
+        return None
+
+    url = f"{HA_BASE_URL}/api/states/{HA_TEMP_ENTITY}"
+    try:
+        resp = requests.get(
+            url,
+            headers={"Authorization": f"Bearer {HA_TOKEN}", "Content-Type": "application/json"},
+            timeout=HA_TIMEOUT_SECONDS,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        
+        state = data.get("state")
+        try:
+            val = float(state)
+            return val
+        except Exception:
+            return None
+            
+    except Exception as e:
+        print(f"Warning: HA temperature check failed ({e})")
         return None
 
 
