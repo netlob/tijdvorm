@@ -184,4 +184,4 @@ if __name__ == "__main__":
        print("!!! Please edit the script and set TV_IP to your Samsung Frame TV's actual IP address.\n")
        # exit(1) # Optional: Uncomment to prevent running with placeholder
     # update_tv_art(TV_IP, '/Users/sjoerdbolten/Documents/Projects/tijdvorm/py/timeform_art.png')
-    main_loop(TV_IP, UPDATE_INTERVAL_MINUTES)
+    main_loop(TV_IP, UPDATE_INTERVAL_MINUTES) 

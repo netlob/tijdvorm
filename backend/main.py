@@ -1,5 +1,10 @@
-import time
 import os
+import sys
+
+# Add project root to sys.path to allow imports from backend.*
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+import time
 import random
 import logging
 import asyncio
@@ -10,7 +15,7 @@ load_dotenv()
 
 from backend.config import TV_IP, UPDATE_INTERVAL_MINUTES
 from backend.integrations.samsung import is_tv_reachable, connect_to_tv, update_tv_art, select_tv_art, _delete_old_user_art
-from backend.integrations.home_assistant import get_sauna_status
+from backend.integrations.home_assistant import get_sauna_status, is_doorbell_active
 from backend.features.easter_eggs import (
     get_override_image_path, get_cached_content_id, set_cached_content_id,
     preserved_content_ids, prepare_rotated_image, load_easter_egg_settings,
@@ -40,6 +45,13 @@ def main_loop(tv_ip, interval_minutes):
 
     iteration = 1
     while True:
+        # 1. Check Doorbell Active State
+        # If doorbell is active, we PAUSE everything. HA is handling the TV.
+        if is_doorbell_active():
+            print("===== Doorbell is ACTIVE (controlled by HA). Pausing TV updates... =====")
+            time.sleep(5) # Check again in 5s
+            continue
+
         # Check if TV is reachable
         if not is_tv_reachable(tv_ip):
             print(f"\n===== TV at {tv_ip} is unreachable (Ping failed). =====")

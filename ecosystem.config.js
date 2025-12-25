@@ -2,14 +2,14 @@ module.exports = {
   apps: [
     {
       name: "tijdvorm-backend",
-      script: "backend/server.py",
-      interpreter: "./venv/bin/python",
-      interpreter_args: "-u", // Unbuffered output for real-time logs
+      script: "./venv/bin/uvicorn",
+      args: "backend.server:app --host 0.0.0.0 --port 8000",
+      interpreter: "none",
       env: {
         PYTHONPATH: ".",
         BACKEND_HOST: "0.0.0.0",
-        BACKEND_PORT: "8000"
-      }
+        BACKEND_PORT: "8000",
+      },
     },
     {
       name: "tijdvorm-tv",
@@ -17,8 +17,8 @@ module.exports = {
       interpreter: "./venv/bin/python",
       interpreter_args: "-u",
       env: {
-        PYTHONPATH: "."
-      }
+        PYTHONPATH: ".",
+      },
     },
     {
       name: "tijdvorm-frontend",
@@ -28,8 +28,8 @@ module.exports = {
       interpreter: "none",
       env: {
         HOST: "0.0.0.0",
-        PORT: "5173"
-      }
-    }
-  ]
+        PORT: "5173",
+      },
+    },
+  ],
 };

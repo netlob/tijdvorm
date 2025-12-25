@@ -44,6 +44,7 @@ ENCODINGS_FILE = os.path.join(DATA_DIR, "face_encodings.pickle")
 
 # Home Assistant
 HA_EXPLICIT_ENTITY = os.environ.get("HA_EXPLICIT_ENTITY", "input_boolean.explicit_frame_art")
+HA_DOORBELL_ACTIVE_ENTITY = os.environ.get("HA_DOORBELL_ACTIVE_ENTITY", "input_boolean.doorbell_active")
 HA_SAUNA_ENTITY = os.environ.get("HA_SAUNA_ENTITY", "climate.sauna_control")
 HA_POWER_ENTITY = os.environ.get("HA_POWER_ENTITY", "sensor.power_consumed")
 HA_TEMP_ENTITY = os.environ.get("HA_TEMP_ENTITY", "sensor.inieuw549_temperature")
@@ -51,6 +52,9 @@ HA_BASE_URL = os.environ.get("HA_BASE_URL", "").rstrip("/")  # e.g. https://ha.e
 HA_TOKEN = os.environ.get("HA_TOKEN", "")
 HA_TIMEOUT_SECONDS = float(os.environ.get("HA_TIMEOUT_SECONDS", "2.0"))
 HA_CACHE_TTL_SECONDS = float(os.environ.get("HA_CACHE_TTL_SECONDS", "30.0"))
+
+# Doorbell Configuration
+USE_PYTHON_DOORBELL_PUSH = False # Set to False if HA handles the display via media_player
 
 # Playwright Timing
 PAGE_LOAD_TIMEOUT = 90000

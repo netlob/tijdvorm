@@ -2,7 +2,8 @@ import requests
 import time
 from backend.config import (
     HA_BASE_URL, HA_TOKEN, HA_EXPLICIT_ENTITY, HA_TIMEOUT_SECONDS, 
-    HA_CACHE_TTL_SECONDS, HA_SAUNA_ENTITY, HA_POWER_ENTITY, HA_TEMP_ENTITY
+    HA_CACHE_TTL_SECONDS, HA_SAUNA_ENTITY, HA_POWER_ENTITY, HA_TEMP_ENTITY,
+    HA_DOORBELL_ACTIVE_ENTITY
 )
 
 _ha_cache = {"value": None, "ts": 0.0}
@@ -41,13 +42,37 @@ def ha_explicit_allowed():
             _ha_cache["ts"] = now
         return bool(_ha_cache["value"])
 
+def is_doorbell_active():
+    """
+    Checks input_boolean.doorbell_active in Home Assistant.
+    Returns True if active/on, False otherwise.
+    Not cached heavily as we want near real-time response for pausing updates.
+    """
+    if not HA_BASE_URL or not HA_TOKEN:
+        return False
+
+    url = f"{HA_BASE_URL}/api/states/{HA_DOORBELL_ACTIVE_ENTITY}"
+    try:
+        resp = requests.get(
+            url,
+            headers={"Authorization": f"Bearer {HA_TOKEN}", "Content-Type": "application/json"},
+            timeout=HA_TIMEOUT_SECONDS,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        state = str(data.get("state")).lower()
+        return state == "on"
+    except Exception as e:
+        # print(f"Warning: HA doorbell check failed ({e})")
+        return False
+
 def get_sauna_status():
     """
     Fetches the status of the sauna climate entity.
     Returns a dict with 'is_on', 'current_temp', 'set_temp' or None if failed/off.
     """
     if not HA_BASE_URL or not HA_TOKEN:
-        print("Warning: HA_BASE_URL or HA_TOKEN not set. Skipping sauna check.")
+        # print("Warning: HA_BASE_URL or HA_TOKEN not set. Skipping sauna check.")
         return None
 
     url = f"{HA_BASE_URL}/api/states/{HA_SAUNA_ENTITY}"
@@ -73,7 +98,7 @@ def get_sauna_status():
                  "current_temp": attributes.get("current_temperature"),
                  "set_temp": attributes.get("temperature")
              }
-        print(f"Sauna is not on (state: {state})")
+        # print(f"Sauna is not on (state: {state})")
         return None
 
     except Exception as e:
@@ -138,4 +163,3 @@ def get_home_temperature():
     except Exception as e:
         print(f"Warning: HA temperature check failed ({e})")
         return None
-
