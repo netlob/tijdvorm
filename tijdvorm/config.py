@@ -20,9 +20,10 @@ OUTPUT_FILENAME = "timeform_art.png"
 
 # Data Directories
 DATA_DIR = "./data"
-EASTER_EGGS_DIR = "./eastereggs"
-LIVE_DIR = "./live"
-ROTATED_IMAGES_DIR = "./images/rotated"
+IMAGES_DIR = os.path.join(DATA_DIR, "images")
+EASTER_EGGS_DIR = os.path.join(IMAGES_DIR, "eastereggs")
+ROTATED_IMAGES_DIR = os.path.join(EASTER_EGGS_DIR, "rotated")
+LIVE_DIR = os.path.join(DATA_DIR, "live")
 ASSETS_DIR = "./assets"
 
 # Asset Paths
