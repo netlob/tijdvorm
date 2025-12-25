@@ -2,7 +2,7 @@ module.exports = {
   apps: [
     {
       name: "tijdvorm-backend",
-      script: "server.py",
+      script: "backend/server.py",
       interpreter: "./venv/bin/python",
       interpreter_args: "-u", // Unbuffered output for real-time logs
       env: {
@@ -13,7 +13,7 @@ module.exports = {
     },
     {
       name: "tijdvorm-tv",
-      script: "main.py",
+      script: "backend/main.py",
       interpreter: "./venv/bin/python",
       interpreter_args: "-u",
       env: {
@@ -33,4 +33,3 @@ module.exports = {
     }
   ]
 };
-
