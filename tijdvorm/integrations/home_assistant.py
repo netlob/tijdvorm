@@ -1,6 +1,6 @@
 import requests
 import time
-from tijdvorm.config import (
+from backend.config import (
     HA_BASE_URL, HA_TOKEN, HA_EXPLICIT_ENTITY, HA_TIMEOUT_SECONDS, 
     HA_CACHE_TTL_SECONDS, HA_SAUNA_ENTITY, HA_POWER_ENTITY, HA_TEMP_ENTITY
 )

@@ -3,15 +3,15 @@ import os
 import json
 from PIL import Image, ImageDraw
 
-from tijdvorm.config import (
+from backend.config import (
     MODIFIED_WEATHER_URL, OUTPUT_WIDTH, OUTPUT_HEIGHT, 
     OUTPUT_FILENAME, FONT_PATH, COND_FONT_SIZE, 
     TEXT_PADDING, LINE_SPACING, TEXT_COLOR, SAUNA_LOG_FILE,
     SAUNA_BACKGROUND_PATH
 )
-from tijdvorm.utils.image import load_fonts, load_font_with_fallback
-from tijdvorm.integrations.weather import get_weather_data
-from tijdvorm.integrations.home_assistant import (
+from backend.utils.image import load_fonts, load_font_with_fallback
+from backend.integrations.weather import get_weather_data
+from backend.integrations.home_assistant import (
     get_home_temperature, get_power_usage
 )
 

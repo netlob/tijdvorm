@@ -4,16 +4,16 @@ import time
 from playwright.async_api import async_playwright
 from PIL import ImageDraw
 
-from tijdvorm.config import (
+from backend.config import (
     URL, OUTPUT_WIDTH, OUTPUT_HEIGHT, PAGE_LOAD_TIMEOUT, 
     SELECTOR_TIMEOUT, RENDER_WAIT_TIME, SIMULATE_HOUR, 
     SLIDER_TRACK_SELECTOR, HIDE_CSS, ARTWORK_FRAME_SELECTOR,
     OUTPUT_FILENAME, MODIFIED_WEATHER_URL,
     TEMP_FONT_SIZE, COND_FONT_SIZE, TIME_FONT_SIZE, LINE_SPACING, TEXT_PADDING, TEXT_COLOR
 )
-from tijdvorm.utils.image import process_screenshot, load_fonts
-from tijdvorm.integrations.weather import get_weather_data
-from tijdvorm.integrations.home_assistant import get_home_temperature
+from backend.utils.image import process_screenshot, load_fonts
+from backend.integrations.weather import get_weather_data
+from backend.integrations.home_assistant import get_home_temperature
 
 async def take_screenshot():
     """Launch browser, navigate, capture screenshot, and return bytes."""

@@ -1,7 +1,7 @@
 import io
 import os
 from PIL import Image, ImageDraw, ImageFont
-from tijdvorm.config import (
+from backend.config import (
     FONT_PATH, TEMP_FONT_SIZE, COND_FONT_SIZE, TIME_FONT_SIZE,
     CROP_LEFT, CROP_TOP, CROP_RIGHT_MARGIN, CROP_BOTTOM_MARGIN,
     ZOOM_FACTOR, OUTPUT_WIDTH, OUTPUT_HEIGHT, COLOR_TOLERANCE

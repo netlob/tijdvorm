@@ -4,12 +4,12 @@ from PIL import Image
 from datetime import datetime, timezone
 import random
 
-from tijdvorm.config import (
+from backend.config import (
     EASTER_EGGS_DIR, EASTER_EGGS_MANIFEST, EASTER_EGGS_OVERRIDE,
     EASTER_EGGS_SETTINGS, ROTATED_IMAGES_DIR, LIVE_DIR,
     LIVE_PREVIEW_FILENAME, LIVE_STATE_FILENAME
 )
-from tijdvorm.integrations.home_assistant import ha_explicit_allowed
+from backend.integrations.home_assistant import ha_explicit_allowed
 
 def load_egg_manifest():
     try:

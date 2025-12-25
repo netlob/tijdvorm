@@ -12,21 +12,21 @@ from datetime import datetime, timezone
 from typing import Any
 from concurrent.futures import ThreadPoolExecutor
 
-# Import shared logic from tijdvorm modules
-from tijdvorm.config import (
+# Import shared logic from backend modules
+from backend.config import (
     EASTER_EGGS_DIR, EASTER_EGGS_MANIFEST, EASTER_EGGS_OVERRIDE,
     EASTER_EGGS_SETTINGS, LIVE_DIR, LIVE_STATE_FILENAME, TV_IP,
     DATA_DIR, FACES_DIR, ENCODINGS_FILE
 )
-from tijdvorm.integrations.samsung import connect_to_tv, update_tv_art
-from tijdvorm.integrations.home_assistant import get_sauna_status
-from tijdvorm.features.easter_eggs import (
+from backend.integrations.samsung import connect_to_tv, update_tv_art
+from backend.integrations.home_assistant import get_sauna_status
+from backend.features.easter_eggs import (
     prepare_rotated_image, preserved_content_ids,
     load_egg_manifest, save_egg_manifest,
 )
-from tijdvorm.features.sauna import generate_sauna_image
-from tijdvorm.features.timeform import generate_timeform_image
-from tijdvorm.features.preview import write_live_preview
+from backend.features.sauna import generate_sauna_image
+from backend.features.timeform import generate_timeform_image
+from backend.features.preview import write_live_preview
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware

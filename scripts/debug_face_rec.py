@@ -5,9 +5,11 @@ import pickle
 from PIL import Image, ImageDraw, ImageFont
 import sys
 
-# Configuration
-FACES_DIR = os.path.abspath("../faces")
-ENCODINGS_FILE = os.path.abspath("../face_encodings.pickle")
+# Hack: Append project root to sys.path if running as script
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+from backend.config import FACES_DIR, ENCODINGS_FILE, ASSETS_DIR
+
 INPUT_FILE = "./IMG_3012.JPG"
 OUTPUT_FILE = INPUT_FILE.replace(".JPG", "_output.JPG")
 
@@ -77,7 +79,7 @@ def process_image():
         # Draw on image
         draw = ImageDraw.Draw(img_cropped)
         try:
-            font = ImageFont.truetype("./fonts/Inter-Regular.otf", 40)
+            font = ImageFont.truetype(os.path.join(ASSETS_DIR, "fonts/Inter-Regular.otf"), 40)
         except:
             font = ImageFont.load_default()
 

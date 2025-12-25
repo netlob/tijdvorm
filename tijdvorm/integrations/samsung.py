@@ -1,7 +1,7 @@
 import platform
 import subprocess
 from samsungtvws import SamsungTVWS
-from tijdvorm.config import DELETE_OLD_ART
+from backend.config import DELETE_OLD_ART
 
 def is_tv_reachable(ip):
     """Pings the TV to check if it is reachable."""

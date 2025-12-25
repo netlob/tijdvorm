@@ -1,7 +1,7 @@
 import json
 import os
 from datetime import datetime, timezone
-from tijdvorm.config import LIVE_DIR, LIVE_PREVIEW_FILENAME, LIVE_STATE_FILENAME
+from backend.config import LIVE_DIR, LIVE_PREVIEW_FILENAME, LIVE_STATE_FILENAME
 
 def write_live_preview(uploaded_image_path, meta):
     """

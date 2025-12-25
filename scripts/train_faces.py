@@ -6,7 +6,7 @@ import sys
 # Hack: Append project root to sys.path if running as script
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from tijdvorm.config import FACES_DIR, ENCODINGS_FILE
+from backend.config import FACES_DIR, ENCODINGS_FILE
 
 def train_faces():
     """Loads images from faces/ directory and saves encodings to a pickle file."""

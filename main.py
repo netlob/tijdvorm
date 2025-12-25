@@ -8,17 +8,17 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
-from tijdvorm.config import TV_IP, UPDATE_INTERVAL_MINUTES
-from tijdvorm.integrations.samsung import is_tv_reachable, connect_to_tv, update_tv_art, select_tv_art, _delete_old_user_art
-from tijdvorm.integrations.home_assistant import get_sauna_status
-from tijdvorm.features.easter_eggs import (
+from backend.config import TV_IP, UPDATE_INTERVAL_MINUTES
+from backend.integrations.samsung import is_tv_reachable, connect_to_tv, update_tv_art, select_tv_art, _delete_old_user_art
+from backend.integrations.home_assistant import get_sauna_status
+from backend.features.easter_eggs import (
     get_override_image_path, get_cached_content_id, set_cached_content_id,
     preserved_content_ids, prepare_rotated_image, load_easter_egg_settings,
     get_random_easter_egg_filtered
 )
-from tijdvorm.features.sauna import generate_sauna_image
-from tijdvorm.features.timeform import generate_timeform_image
-from tijdvorm.features.preview import write_live_preview
+from backend.features.sauna import generate_sauna_image
+from backend.features.timeform import generate_timeform_image
+from backend.features.preview import write_live_preview
 
 # --- Main Loop (Synchronous) ---
 
