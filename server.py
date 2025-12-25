@@ -3,9 +3,14 @@ import json
 import shutil
 import requests
 import io
-from PIL import Image
+import asyncio
+import numpy as np
+import face_recognition
+import pickle
+from PIL import Image, ImageDraw, ImageFont
 from datetime import datetime, timezone
 from typing import Any
+from concurrent.futures import ThreadPoolExecutor
 
 # Import shared logic from main.py
 try:
@@ -14,13 +19,16 @@ except ImportError:
     main_script = None
     print("[tijdvorm] Warning: Could not import main.py. Doorbell feature will be limited.")
 
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 
 EASTER_EGGS_DIR = os.path.abspath("./eastereggs")
+FACES_DIR = os.path.abspath("./faces")
+ENCODINGS_FILE = os.path.abspath("./face_encodings.pickle")
 MANIFEST_PATH = os.path.join(EASTER_EGGS_DIR, "manifest.json")
+
 OVERRIDE_PATH = os.path.join(EASTER_EGGS_DIR, "override.json")
 SETTINGS_PATH = os.path.join(EASTER_EGGS_DIR, "settings.json")
 
@@ -442,9 +450,184 @@ def set_settings(payload: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "easter_egg_chance_denominator": denom_i}
 
 
-def _handle_doorbell(data: dict[str, Any]) -> dict[str, Any]:
+# --- Face Recognition State ---
+KNOWN_FACE_ENCODINGS = []
+KNOWN_FACE_NAMES = []
+DOORBELL_ACTIVE = False
+TV_BUSY = False
+
+def load_known_faces():
+    """Loads face encodings from pickle file if exists, else warns."""
+    global KNOWN_FACE_ENCODINGS, KNOWN_FACE_NAMES
+    
+    print("[Face Rec] Loading known faces...", flush=True)
+    
+    if os.path.exists(ENCODINGS_FILE):
+        try:
+            with open(ENCODINGS_FILE, "rb") as f:
+                data = pickle.load(f)
+            KNOWN_FACE_ENCODINGS = data["encodings"]
+            KNOWN_FACE_NAMES = data["names"]
+            print(f"[Face Rec] Loaded {len(KNOWN_FACE_NAMES)} faces from cache.", flush=True)
+            return
+        except Exception as e:
+            print(f"[Face Rec] Failed to load cache: {e}", flush=True)
+
+    print("[Face Rec] No cache found or load failed. Please run 'python train_faces.py'.", flush=True)
+    print("[Face Rec] Starting with empty face database.", flush=True)
+
+# Load faces on startup
+load_known_faces()
+
+
+async def doorbell_recognition_loop():
+    """
+    Background loop that runs while DOORBELL_ACTIVE is True.
+    Fetches snapshot -> Detects Faces -> Updates TV if recognized.
+    """
+    global DOORBELL_ACTIVE, TV_BUSY
+    
     snapshot_url = "http://nvr.netlob/cgi-bin/api.cgi?cmd=Snap&channel=0&rs=wuuPhkmUCeI9WG7C&user=api&password=peepeepoopoo"
     filename = "doorbell.jpg"
+    
+    print("[Doorbell Loop] Started.", flush=True)
+    
+    while DOORBELL_ACTIVE:
+        if TV_BUSY:
+            await asyncio.sleep(1)
+            continue
+            
+        try:
+            # 1. Fetch
+            try:
+                resp = requests.get(snapshot_url, timeout=5)
+                resp.raise_for_status()
+            except Exception as e:
+                print(f"[Doorbell Loop] Fetch failed: {e}", flush=True)
+                await asyncio.sleep(1)
+                continue
+
+            # 2. Process (Resize/Crop first for consistency with main handler)
+            # We need to process it to the target dimensions BEFORE detection
+            # so the boxes match what is shown on TV.
+            img = Image.open(io.BytesIO(resp.content))
+            TARGET_WIDTH = 1080
+            TARGET_HEIGHT = 1920
+            
+            # Resize/Crop logic (same as _handle_doorbell)
+            original_width, original_height = img.size
+            ratio = TARGET_HEIGHT / original_height
+            new_width = int(original_width * ratio)
+            new_height = TARGET_HEIGHT
+            img_resized = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+            
+            # 2. Crop to 1080 width, aligned center
+            left_offset = (new_width - TARGET_WIDTH) // 2
+            img_cropped = img_resized.crop((left_offset, 0, left_offset + TARGET_WIDTH, TARGET_HEIGHT))
+            
+            # 3. Detect Faces
+            # Convert PIL to numpy array (RGB)
+            img_np = np.array(img_cropped)
+            
+            # Optimization: Resize for detection (1/4 size)
+            small_frame = np.ascontiguousarray(img_np[::4, ::4])
+            
+            # Find faces
+            face_locations = face_recognition.face_locations(small_frame)
+            face_encodings = face_recognition.face_encodings(small_frame, face_locations)
+            
+            recognized_names = []
+            
+            for face_encoding in face_encodings:
+                matches = face_recognition.compare_faces(KNOWN_FACE_ENCODINGS, face_encoding, tolerance=0.6)
+                name = "Unknown"
+                
+                if True in matches:
+                    first_match_index = matches.index(True)
+                    name = KNOWN_FACE_NAMES[first_match_index]
+                    recognized_names.append(name)
+
+            # 4. If recognized faces found, update TV
+            if recognized_names:
+                print(f"[Doorbell Loop] Recognized: {recognized_names}", flush=True)
+                
+                # Draw boxes/names on full size image
+                draw = ImageDraw.Draw(img_cropped)
+                font_size = 40
+                try:
+                    # Try loading a font
+                    font = ImageFont.truetype("./fonts/Inter-Regular.otf", font_size)
+                except:
+                    font = ImageFont.load_default()
+
+                for (top, right, bottom, left), name in zip(face_locations, recognized_names): # Note: iterating detected faces
+                    # Scale back up by 4
+                    top *= 4
+                    right *= 4
+                    bottom *= 4
+                    left *= 4
+                    
+                    # Draw box
+                    draw.rectangle(((left, top), (right, bottom)), outline=(0, 255, 0), width=5)
+                    
+                    # Draw text background
+                    text_bbox = draw.textbbox((left, bottom), name, font=font)
+                    text_width = text_bbox[2] - text_bbox[0]
+                    text_height = text_bbox[3] - text_bbox[1]
+                    draw.rectangle(((left, bottom), (left + text_width + 10, bottom + text_height + 10)), fill=(0, 255, 0), outline=(0, 255, 0))
+                    draw.text((left + 5, bottom + 5), name, fill=(255, 255, 255, 255), font=font)
+
+                # Save to disk
+                _ensure_dirs()
+                file_path = os.path.join(EASTER_EGGS_DIR, filename)
+                img_cropped.save(file_path, quality=95)
+                
+                # Push to TV
+                if main_script and not TV_BUSY:
+                    TV_BUSY = True
+                    try:
+                        print(f"[Doorbell Loop] Updating TV with recognized faces...", flush=True)
+                        rotated_path = main_script.prepare_rotated_image(file_path)
+                        if rotated_path:
+                            # Run synchronous TV update in thread
+                            loop = asyncio.get_running_loop()
+                            await loop.run_in_executor(None, _push_to_tv_sync, rotated_path)
+                    except Exception as e:
+                        print(f"[Doorbell Loop] Update failed: {e}", flush=True)
+                    finally:
+                        TV_BUSY = False
+            
+            else:
+                 # No recognized faces, do nothing (or maybe update anyway if movement? User said "if someone is recognized update")
+                 pass
+
+        except Exception as e:
+            print(f"[Doorbell Loop] Error: {e}", flush=True)
+            
+        await asyncio.sleep(1) # Fetch every second
+
+    print("[Doorbell Loop] Stopped.", flush=True)
+
+def _push_to_tv_sync(image_path):
+    """Helper to run TV update synchronously."""
+    if not main_script: return
+    tv = main_script.connect_to_tv(main_script.TV_IP)
+    if tv:
+        preserve = main_script._preserved_content_ids()
+        main_script.update_tv_art(tv, image_path, preserve_ids=preserve)
+
+
+def _handle_doorbell(data: dict[str, Any], background_tasks: BackgroundTasks) -> dict[str, Any]:
+    global DOORBELL_ACTIVE
+    
+    # Enable Loop if not already running
+    if not DOORBELL_ACTIVE:
+        DOORBELL_ACTIVE = True
+        background_tasks.add_task(doorbell_recognition_loop)
+    
+    snapshot_url = "http://nvr.netlob/cgi-bin/api.cgi?cmd=Snap&channel=0&rs=wuuPhkmUCeI9WG7C&user=api&password=peepeepoopoo"
+    filename = "doorbell.jpg"
+
     
     # 1. Fetch Snapshot
     try:
@@ -476,9 +659,10 @@ def _handle_doorbell(data: dict[str, Any]) -> dict[str, Any]:
         
         img_resized = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
         
-        # 2. Crop to 1080 width, aligned left
-        # (0, 0, 1080, 1920)
-        img_cropped = img_resized.crop((0, 0, TARGET_WIDTH, TARGET_HEIGHT))
+        # 2. Crop to 1080 width, aligned center
+        # Calculate left offset to center the crop
+        left_offset = (new_width - TARGET_WIDTH) // 2
+        img_cropped = img_resized.crop((left_offset, 0, left_offset + TARGET_WIDTH, TARGET_HEIGHT))
         
         # Save processed image
         img_cropped.save(file_path, quality=95)
@@ -491,40 +675,49 @@ def _handle_doorbell(data: dict[str, Any]) -> dict[str, Any]:
     # 3. Set Override (so main loop respects it if it wakes up)
     _save_override(filename)
     
-    # 4. Immediate TV Update
-    if main_script:
-        try:
-            # Rotate image (required for The Frame apparently)
-            print("[Doorbell] Rotating image...", flush=True)
-            rotated_path = main_script.prepare_rotated_image(file_path)
-            
-            if rotated_path:
-                print(f"[Doorbell] Connecting to TV at {main_script.TV_IP}...", flush=True)
-                tv = main_script.connect_to_tv(main_script.TV_IP)
-                if tv:
-                    print("[Doorbell] Connected. Uploading art...", flush=True)
-                    # Preserve existing content IDs to avoid cache trashing
-                    preserve = main_script._preserved_content_ids()
-                    new_id = main_script.update_tv_art(tv, rotated_path, preserve_ids=preserve)
-                    if new_id:
-                        print(f"[Doorbell] TV updated successfully (Content ID: {new_id})", flush=True)
-                        return {"ok": True, "status": "displayed", "content_id": new_id}
-                else:
-                    print("[Doorbell] Failed to connect to TV.", flush=True)
-        except Exception as e:
-            print(f"[Doorbell] Error updating TV: {e}", flush=True)
-            # We don't raise here because the override is set, so it might work later
+    # 4. Immediate TV Update (First Frame)
+    if main_script and not TV_BUSY:
+        background_tasks.add_task(_initial_push, file_path)
     
     return {"ok": True, "status": "override_set_pending_update"}
 
+async def _initial_push(file_path: str):
+    """Push the initial frame in background to not block the request, but immediately."""
+    global TV_BUSY
+    if TV_BUSY: return
+    TV_BUSY = True
+    try:
+        if main_script:
+            print("[Doorbell] Rotating initial image...", flush=True)
+            rotated_path = main_script.prepare_rotated_image(file_path)
+            if rotated_path:
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(None, _push_to_tv_sync, rotated_path)
+    except Exception as e:
+         print(f"[Doorbell] Initial push failed: {e}", flush=True)
+    finally:
+         TV_BUSY = False
+
 
 async def _handle_doorbell_off() -> dict[str, Any]:
+    global DOORBELL_ACTIVE, TV_BUSY
+    
+    # Stop the loop
+    DOORBELL_ACTIVE = False
+    
     # 1. Clear Override
     _save_override(None)
     
     # 2. Restore default art immediately
     if main_script:
+        # Wait if TV is busy (e.g. upload in progress)
+        retries = 0
+        while TV_BUSY and retries < 15:
+             await asyncio.sleep(1)
+             retries += 1
+
         try:
+            TV_BUSY = True
             print("[Doorbell] Doorbell OFF received. Restoring default art...", flush=True)
             
             # Check Sauna Logic (replicate main_loop behavior)
@@ -543,26 +736,26 @@ async def _handle_doorbell_off() -> dict[str, Any]:
 
             if image_path:
                  print(f"[Doorbell] Connecting to TV at {main_script.TV_IP}...", flush=True)
-                 tv = main_script.connect_to_tv(main_script.TV_IP)
-                 if tv:
-                     print("[Doorbell] Connected. Uploading restored art...", flush=True)
-                     preserve = main_script._preserved_content_ids()
-                     new_id = main_script.update_tv_art(tv, image_path, preserve_ids=preserve)
-                     if new_id:
-                         # Update live preview
-                         main_script._write_live_preview(image_path, live_meta)
-                         return {"ok": True, "status": "restored", "content_id": new_id}
+                 # Run sync connection in thread
+                 loop = asyncio.get_running_loop()
+                 await loop.run_in_executor(None, _push_to_tv_sync, image_path)
+                 
+                 # Update live preview
+                 main_script._write_live_preview(image_path, live_meta)
+                 return {"ok": True, "status": "restored"}
             else:
                  print("[Doorbell] Failed to generate restore image.", flush=True)
 
         except Exception as e:
             print(f"[Doorbell] Error restoring TV: {e}", flush=True)
+        finally:
+            TV_BUSY = False
 
     return {"ok": True, "status": "override_cleared_pending_update"}
 
 
 @app.post("/api/ha")
-async def ha_webhook(payload: dict[str, Any]) -> dict[str, Any]:
+async def ha_webhook(payload: dict[str, Any], background_tasks: BackgroundTasks) -> dict[str, Any]:
     """
     Unified endpoint for Home Assistant automations.
     Payload format:
@@ -577,7 +770,7 @@ async def ha_webhook(payload: dict[str, Any]) -> dict[str, Any]:
         data = {}
 
     if action == "doorbell" or action == "doorbell_on":
-        return _handle_doorbell(data)
+        return _handle_doorbell(data, background_tasks)
     elif action == "doorbell_off":
         return await _handle_doorbell_off()
     
