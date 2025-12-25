@@ -128,7 +128,7 @@
     {:else if images.length === 0}
       <div class="text-sm text-muted-foreground">No images yet. Upload one above.</div>
     {:else}
-      <div class="grid grid-cols-2 gap-3">
+      <div class="grid grid-cols-3 gap-3">
         {#each images as img (img.filename)}
           <button
             type="button"
@@ -137,14 +137,14 @@
           >
             <!-- Images are 9:16 — keep a consistent 9:16 frame for a clean 2-up grid -->
             <div class="border-b border-border bg-muted/30">
-              <div class="aspect-[9/16] w-full overflow-hidden rounded-md border border-border bg-background">
+              <!-- <div class="aspect-[9/16] w-full overflow-hidden rounded-md border border-border bg-background"> -->
                 <img
                   class="h-full w-full object-cover"
                   alt={img.filename}
                   src={img.url}
                   loading="lazy"
                 />
-              </div>
+              <!-- </div> -->
             </div>
 
             <div class="p-3">
@@ -173,6 +173,7 @@
                 {#if img.explicit}
                   <span class="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">Explicit</span>
                 {/if}
+                <span class="rounded-full bg-primary/15 px-2 py-0.5 text-[11px] opacity-0">o</span>
               </div>
 
               <div class="mt-2 truncate text-xs text-muted-foreground">

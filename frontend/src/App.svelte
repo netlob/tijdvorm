@@ -167,7 +167,7 @@
 </script>
 
 <div class="min-h-[100dvh]">
-  <header
+  <!-- <header
     class="sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/75"
     style="padding-top: env(safe-area-inset-top);"
   >
@@ -182,7 +182,7 @@
         <button class="text-xs text-muted-foreground hover:text-foreground" on:click={() => goto("/")}>Home</button>
       {/if}
     </div>
-  </header>
+  </header> -->
 
   <main
     class="mx-auto w-full max-w-[960px] px-4 pt-4 sm:px-6"
