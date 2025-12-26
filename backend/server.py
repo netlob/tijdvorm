@@ -14,6 +14,12 @@ import subprocess
 import signal
 import numpy as np
 # import face_recognition  <-- Moved to lazy import to avoid startup crashes if models are missing
+# Patch for Python 3.13+ missing pkg_resources
+try:
+    from backend.utils import face_rec_patch
+except ImportError:
+    pass
+
 import pickle
 from PIL import Image, ImageDraw, ImageFont
 from datetime import datetime, timezone

@@ -10,3 +10,4 @@ pillow>=10.0.0
 python-dotenv>=1.0.0
 git+https://github.com/NickWaterton/samsung-tv-ws-api.git#egg=samsungtvws[async,encrypted]
 pyatv>=0.13.0
+setuptools>=65.0.0
