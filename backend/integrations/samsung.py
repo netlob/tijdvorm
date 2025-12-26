@@ -3,7 +3,7 @@ import subprocess
 import os
 import asyncio
 from samsungtvws.async_art import SamsungTVAsyncArt
-from samsungtvws import exceptions
+from samsungtvws import exceptions, SamsungTVWS
 from backend.config import DELETE_OLD_ART, DATA_DIR
 
 # Store token in data directory so it persists
@@ -119,3 +119,33 @@ async def select_tv_art(tv, content_id, preserve_ids=None):
     except Exception as e:
         print(f"Warning: failed to select cached art {content_id} ({e})")
         return False
+
+async def switch_to_hdmi(tv_ip, source_key):
+    """Switches TV to HDMI source using remote control commands."""
+    print(f"Switching TV at {tv_ip} to HDMI ({source_key})...")
+    def _switch():
+        try:
+            # Standard remote control connection
+            # We use the same token file to avoid re-auth prompts
+            tv = SamsungTVWS(host=tv_ip, port=8002, token_file=TOKEN_FILE)
+            tv.send_key(source_key)
+        except Exception as e:
+            print(f"Failed to switch to HDMI: {e}")
+
+    await asyncio.to_thread(_switch)
+
+async def set_art_mode_active(tv_ip, active: bool = True):
+    """
+    Sets Art Mode state. 
+    active=True -> Art Mode
+    active=False -> Exit Art Mode (usually goes to TV)
+    """
+    try:
+        tv = await connect_to_tv(tv_ip)
+        if tv:
+            state = 'on' if active else 'off'
+            print(f"Setting Art Mode to {state}...")
+            await tv.set_artmode(state)
+            await tv.close()
+    except Exception as e:
+        print(f"Failed to set Art Mode {active}: {e}")

@@ -27,7 +27,7 @@ from typing import Any, Optional, Union
 from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Request, Response
-from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.responses import StreamingResponse, FileResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -35,9 +35,10 @@ from fastapi.staticfiles import StaticFiles
 from backend.config import (
     EASTER_EGGS_DIR, EASTER_EGGS_MANIFEST, EASTER_EGGS_OVERRIDE,
     EASTER_EGGS_SETTINGS, LIVE_DIR, LIVE_STATE_PATH, TV_IP,
-    DATA_DIR, FACES_DIR, ENCODINGS_FILE, USE_PYTHON_DOORBELL_PUSH, ASSETS_DIR
+    DATA_DIR, FACES_DIR, ENCODINGS_FILE, USE_PYTHON_DOORBELL_PUSH, ASSETS_DIR,
+    HDMI_SOURCE_KEY, BACKEND_PUBLIC_URL
 )
-from backend.integrations.samsung import connect_to_tv, update_tv_art
+from backend.integrations.samsung import connect_to_tv, update_tv_art, switch_to_hdmi, set_art_mode_active
 from backend.integrations.home_assistant import get_sauna_status
 from backend.features.easter_eggs import (
     prepare_rotated_image, preserved_content_ids,
@@ -48,6 +49,7 @@ from backend.features.timeform import generate_timeform_image
 from backend.features.preview import write_live_preview
 from backend.integrations.airplay import play_url_on_tv, get_local_ip, stop_airplay
 from backend.integrations.dlna import play_url_via_dlna, stop_dlna
+from backend.features.hdmi_display import start_hdmi_display, stop_hdmi_display
 import tempfile
 
 # Constants from config are used where possible
@@ -772,9 +774,17 @@ def _handle_doorbell(data: dict[str, Any], background_tasks: BackgroundTasks) ->
     
     # 4. Immediate TV Update (First Frame) - ONLY if enabled
     if USE_PYTHON_DOORBELL_PUSH:
+        filename = "doorbell.jpg" # Fix: filename wasn't defined in this scope if unused
         file_path = os.path.join(EASTER_EGGS_DIR, filename)
         if not TV_BUSY:
             background_tasks.add_task(_initial_push, file_path)
+    
+    # 5. HDMI Switch & Display (Pi)
+    # Start display on remote HDMI (Pi)
+    print(f"[Doorbell] Switching TV to HDMI ({HDMI_SOURCE_KEY}) and showing stream...", flush=True)
+    # Use public URL so Pi can reach us
+    start_hdmi_display(f"{BACKEND_PUBLIC_URL}/view/doorbell")
+    background_tasks.add_task(switch_to_hdmi, TV_IP, HDMI_SOURCE_KEY)
     
     return {"ok": True, "status": "doorbell_active"}
 
@@ -799,6 +809,11 @@ async def _handle_doorbell_off() -> dict[str, Any]:
     
     # Stop the loop
     DOORBELL_ACTIVE = False
+
+    # Stop HDMI Display & Switch back to Art Mode
+    print("[Doorbell] Stopping HDMI display and restoring Art Mode...", flush=True)
+    stop_hdmi_display()
+    await set_art_mode_active(TV_IP, True)
     
     # Stop AirPlay / DLNA
     # await stop_airplay()
@@ -942,6 +957,24 @@ def get_camera_frame_generator():
         # Without sleep, it will max out CPU fetching snapshots.
         # 1.0s = 1fps, reasonable for doorbell.
         time.sleep(1.0)
+
+@app.get("/view/doorbell", response_class=HTMLResponse)
+async def view_doorbell():
+    return """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Doorbell View</title>
+        <style>
+            body { margin: 0; padding: 0; background: black; overflow: hidden; height: 100vh; display: flex; justify-content: center; align-items: center; }
+            img { width: 100%; height: 100%; object-fit: cover; }
+        </style>
+    </head>
+    <body>
+        <img src="/api/stream/doorbell" alt="Doorbell Stream">
+    </body>
+    </html>
+    """
 
 @app.get("/api/stream/doorbell")
 async def stream_doorbell():
