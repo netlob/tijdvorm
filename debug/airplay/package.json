@@ -1,0 +1,22 @@
+{
+  "name": "tijdvorm-airplay-test",
+  "version": "1.0.0",
+  "description": "Testing AirPlay compatibility with Samsung Frame TV",
+  "main": "test_airplayer.js",
+  "scripts": {
+    "test": "node test_airplayer.js",
+    "airplay-test": "node test_airplayer.js"
+  },
+  "dependencies": {
+    "airplayer": "^2.0.0"
+  },
+  "keywords": [
+    "airplay",
+    "samsung",
+    "tv",
+    "streaming",
+    "test"
+  ],
+  "author": "",
+  "license": "MIT"
+}

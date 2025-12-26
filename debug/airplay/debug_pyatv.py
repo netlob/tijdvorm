@@ -12,8 +12,10 @@ import sys
 import time
 from typing import List, Optional
 
-# Add project root to path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+# Add project root to path and change working directory
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+sys.path.insert(0, project_root)
+os.chdir(project_root)
 
 import pyatv
 from pyatv import scan

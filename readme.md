@@ -59,6 +59,40 @@ npm run dev
 
 Open it on your phone (same Wi‑Fi): `http://<your-computer-ip>:5173`
 
+### debugging & troubleshooting
+
+The project includes comprehensive debugging tools for AirPlay and DLNA streaming:
+
+#### DLNA Debugging (Recommended for Samsung TVs)
+```bash
+cd debug/dlna
+python quick_test.py                    # Fast DLNA functionality test
+python test_dlna_performance.py         # Comprehensive performance testing
+python test_dlna_discovery.py           # Device discovery and compatibility
+python test_dlna_performance.py reliability 10  # 10-minute reliability test
+```
+
+#### AirPlay Debugging
+```bash
+cd debug/airplay
+python debug_pyatv.py          # Interactive AirPlay diagnostic menu
+python debug_pyatv.py scan     # Scan for AirPlay devices
+python debug_pyatv.py test     # Run comprehensive tests
+python debug_pyatv.py diagnose # iPhone compatibility analysis
+
+# Node.js alternative testing
+npm install
+node test_airplayer.js
+```
+
+#### Key Findings
+- **DLNA works reliably** with Samsung Frame TVs ✅
+- **AirPlay works with iPhone** but not with client libraries ❌
+- **Both pyatv & airplayer fail** with same Samsung compatibility issues
+- **Issue confirmed to be Samsung TV protocol implementation**, not client libraries
+
+See `debug/airplay/README.md` for detailed troubleshooting.
+
 ### explicit filtering (Home Assistant)
 
 Each uploaded image can be marked **Explicit** in the web UI.
