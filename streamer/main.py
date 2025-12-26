@@ -27,6 +27,12 @@ def start_display(req: DisplayRequest):
     # 1. Stop existing
     stop_display()
     
+    # Ensure no zombies left (if server restarted or tracking lost)
+    try:
+        subprocess.run(["pkill", "-f", "chromium"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except:
+        pass
+    
     # 2. Start new
     logger.info(f"Starting display for URL: {req.url}")
     
