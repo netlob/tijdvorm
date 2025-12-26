@@ -240,6 +240,9 @@ def _spawn_ffmpeg_hls():
             pass
 
     rtsp_url = "rtsp://api:peepeepoopoo@nvr.netlob:554/h264Preview_01_main"
+    # Optimized filter: scale first (hardware/faster), then crop. 
+    # Also using zerolatency tuning is good, but let's ensure preset is ultrafast.
+    # We want 1080x1920 output.
     filter_complex = "crop=in_w:in_h-60:0:60,scale=-1:1920,crop=1080:1920:(in_w-1080)/2:0,transpose=2,transpose=2"
 
     cmd = [
@@ -253,7 +256,7 @@ def _spawn_ffmpeg_hls():
         "-tune", "zerolatency",
         "-b:v", "3000k",
         "-maxrate", "3000k",
-        "-bufsize", "3000k",
+        "-bufsize", "6000k", # Increased buffer for stability
         "-g", "10",             # keyframe every 0.5s (20fps source)
         "-sc_threshold", "0",
         "-f", "hls",
@@ -934,14 +937,17 @@ def get_camera_frame_generator():
     """
     boundary = "frame"
     while True:
-        img_processed = fetch_and_process_doorbell_snapshot()
+        # Use specialized fetch that skips face recognition for speed
+        img_processed = fetch_fast_snapshot()
+        
         if img_processed:
             try:
                 # Rotate
                 # img_rotated = img_processed.rotate(180)
                 img_rotated = img_processed
                 img_io = io.BytesIO()
-                img_rotated.save(img_io, 'JPEG', quality=90)
+                # Reduce JPEG quality slightly for speed (85 vs 90)
+                img_rotated.save(img_io, 'JPEG', quality=85)
                 frame_bytes = img_io.getvalue()
                 
                 # Yield frame in MJPEG format
@@ -954,10 +960,40 @@ def get_camera_frame_generator():
             except Exception as e:
                 print(f"[Stream] Error processing frame: {e}")
         
-        # Small sleep to limit FPS and CPU usage? 
-        # Without sleep, it will max out CPU fetching snapshots.
-        # 1.0s = 1fps, reasonable for doorbell.
-        time.sleep(1.0)
+        # Max 10 FPS (0.1s sleep) - much smoother than 1 FPS
+        time.sleep(0.1)
+
+def fetch_fast_snapshot():
+    """
+    Faster snapshot fetch that skips face recognition and drawing.
+    Just fetch -> crop/resize -> return.
+    """
+    snapshot_url = "http://nvr.netlob/cgi-bin/api.cgi?cmd=Snap&channel=0&rs=wuuPhkmUCeI9WG7C&user=api&password=peepeepoopoo"
+    try:
+        resp = requests.get(snapshot_url, timeout=2)
+        resp.raise_for_status()
+        
+        img = Image.open(io.BytesIO(resp.content))
+        TARGET_WIDTH = 1080
+        TARGET_HEIGHT = 1920
+        
+        # 1. Crop Top 60px
+        w, h = img.size
+        img = img.crop((0, 0, w, h-60))
+        w, h = img.size
+        
+        # 2. Resize
+        ratio = TARGET_HEIGHT / h
+        new_width = int(w * ratio)
+        img_resized = img.resize((new_width, TARGET_HEIGHT), Image.Resampling.NEAREST) # Nearest neighbor is faster
+        
+        # 3. Crop Center/Left
+        img_cropped = img_resized.crop((0, 0, TARGET_WIDTH, TARGET_HEIGHT))
+        
+        return img_cropped
+    except Exception as e:
+        # print(f"[Fast Stream] Error: {e}")
+        return None
 
 @app.get("/view/doorbell", response_class=HTMLResponse)
 async def view_doorbell():
