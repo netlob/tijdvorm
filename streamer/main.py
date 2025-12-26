@@ -12,15 +12,10 @@ logger = logging.getLogger("streamer")
 app = FastAPI(title="Tijdvorm Streamer")
 
 BROWSER_PROCESS = None
-# Common paths for Chromium on Pi/Linux
-BROWSER_CMD = [
-    "chromium-browser",
-    "--kiosk",
-    "--noerrdialogs",
-    "--disable-infobars",
-    "--check-for-update-interval=31536000",
-    "--autoplay-policy=no-user-gesture-required"
-]
+# Command to launch X server with Chromium
+# We use xinit to start X server + window manager + chromium
+# This allows it to run on Lite without a desktop environment running
+START_SCRIPT = os.path.abspath("start_kiosk.sh")
 
 class DisplayRequest(BaseModel):
     url: str
@@ -35,26 +30,26 @@ def start_display(req: DisplayRequest):
     # 2. Start new
     logger.info(f"Starting display for URL: {req.url}")
     
-    # Ensure DISPLAY is set (for Pi execution)
-    env = os.environ.copy()
-    if "DISPLAY" not in env:
-        env["DISPLAY"] = ":0"
-        
-    cmd = BROWSER_CMD + [req.url]
+    # Create the start script dynamically or just pass URL to it
+    # We will pass the URL as an argument to the start script
     
     try:
         # Start new process group so we can kill it reliably
+        # We run 'xinit' which starts X and then our script
+        # Note: We need to run this as the current user, assuming they have console rights (default on Pi)
+        
+        cmd = ["/usr/bin/xinit", START_SCRIPT, req.url, "--", "-nocursor"]
+        
         BROWSER_PROCESS = subprocess.Popen(
             cmd,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            start_new_session=True,
-            env=env
+            start_new_session=True
         )
         return {"status": "started", "pid": BROWSER_PROCESS.pid}
     except FileNotFoundError:
-        logger.error("chromium-browser not found. Please install it (sudo apt install chromium-browser).")
-        raise HTTPException(status_code=500, detail="chromium-browser binary not found")
+        logger.error("xinit not found. Please run setup_pi.sh.")
+        raise HTTPException(status_code=500, detail="xinit not found")
     except Exception as e:
         logger.error(f"Failed to launch browser: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -66,9 +61,10 @@ def stop_display():
         logger.info("Stopping display...")
         if BROWSER_PROCESS.poll() is None:
             try:
+                # Killing xinit should kill the X server and children
                 os.killpg(os.getpgid(BROWSER_PROCESS.pid), signal.SIGTERM)
                 try:
-                    BROWSER_PROCESS.wait(timeout=2)
+                    BROWSER_PROCESS.wait(timeout=3)
                 except subprocess.TimeoutExpired:
                     os.killpg(os.getpgid(BROWSER_PROCESS.pid), signal.SIGKILL)
             except Exception as e:
@@ -79,4 +75,3 @@ def stop_display():
 @app.get("/health")
 def health():
     return {"status": "ok"}
-
