@@ -1,6 +1,8 @@
 import logging
-# import upnpclient  <-- Removed to avoid lxml compilation errors on Python 3.13
-upnpclient = None
+try:
+    import upnpclient
+except ImportError:
+    upnpclient = None
 
 from backend.config import TV_IP
 
