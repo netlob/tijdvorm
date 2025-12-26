@@ -39,7 +39,7 @@ from backend.config import (
     HDMI_SOURCE_KEY, BACKEND_PUBLIC_URL
 )
 from backend.integrations.samsung import connect_to_tv, update_tv_art, switch_to_hdmi, set_art_mode_active
-from backend.integrations.home_assistant import get_sauna_status
+from backend.integrations.home_assistant import get_sauna_status, trigger_ha_hdmi_webhook
 from backend.features.easter_eggs import (
     prepare_rotated_image, preserved_content_ids,
     load_egg_manifest, save_egg_manifest,
@@ -798,8 +798,9 @@ def _handle_doorbell(data: dict[str, Any], background_tasks: BackgroundTasks) ->
 async def doorbell_stream_ready(background_tasks: BackgroundTasks):
     """Called by the frontend (Pi browser) when the first frame is loaded."""
     global TV_BUSY
-    print(f"[Doorbell] Stream ready! Switching TV to HDMI ({HDMI_SOURCE_KEY})...", flush=True)
-    background_tasks.add_task(switch_to_hdmi, TV_IP, HDMI_SOURCE_KEY)
+    print(f"[Doorbell] Stream ready! Triggering HA Webhook to switch TV to HDMI...", flush=True)
+    # Using HA webhook instead of direct Samsung control
+    background_tasks.add_task(trigger_ha_hdmi_webhook)
     return {"ok": True}
 
 async def _initial_push(file_path: str):

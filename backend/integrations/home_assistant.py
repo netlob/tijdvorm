@@ -42,6 +42,27 @@ def ha_explicit_allowed():
             _ha_cache["ts"] = now
         return bool(_ha_cache["value"])
 
+def trigger_ha_hdmi_webhook():
+    """Triggers the Home Assistant webhook to switch the TV to HDMI."""
+    if not HA_BASE_URL or not HA_TOKEN:
+        print("Warning: Cannot trigger HA webhook, base URL or token missing.")
+        return False
+        
+    url = f"{HA_BASE_URL}/api/webhook/frame-hdmi"
+    try:
+        # Webhooks usually accept POST (sometimes GET, depending on config)
+        # Using POST as standard practice for action triggers
+        resp = requests.post(
+            url,
+            timeout=HA_TIMEOUT_SECONDS
+        )
+        resp.raise_for_status()
+        print("Successfully triggered HA HDMI webhook.")
+        return True
+    except Exception as e:
+        print(f"Error triggering HA HDMI webhook: {e}")
+        return False
+
 def is_doorbell_active():
     """
     Checks input_boolean.doorbell_active in Home Assistant.
