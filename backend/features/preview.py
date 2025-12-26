@@ -1,7 +1,7 @@
 import json
 import os
 from datetime import datetime, timezone
-from backend.config import LIVE_DIR, LIVE_PREVIEW_FILENAME, LIVE_STATE_FILENAME
+from backend.config import LIVE_PREVIEW_PATH, LIVE_STATE_PATH
 
 def write_live_preview(uploaded_image_path, meta):
     """
@@ -9,15 +9,11 @@ def write_live_preview(uploaded_image_path, meta):
     `uploaded_image_path` should be the exact file pushed to the TV (so the preview matches the TV).
     """
     try:
-        os.makedirs(LIVE_DIR, exist_ok=True)
-        preview_path = os.path.join(LIVE_DIR, LIVE_PREVIEW_FILENAME)
-        state_path = os.path.join(LIVE_DIR, LIVE_STATE_FILENAME)
-
         # Copy preview image (atomic replace)
-        tmp_preview = preview_path + ".tmp"
+        tmp_preview = LIVE_PREVIEW_PATH + ".tmp"
         with open(uploaded_image_path, "rb") as src, open(tmp_preview, "wb") as dst:
             dst.write(src.read())
-        os.replace(tmp_preview, preview_path)
+        os.replace(tmp_preview, LIVE_PREVIEW_PATH)
 
         # Write JSON state (atomic replace)
         payload = {
@@ -26,10 +22,10 @@ def write_live_preview(uploaded_image_path, meta):
             "filename": meta.get("filename"),
             "url": "/live/preview.png",
         }
-        tmp_state = state_path + ".tmp"
+        tmp_state = LIVE_STATE_PATH + ".tmp"
         with open(tmp_state, "w", encoding="utf-8") as f:
             json.dump(payload, f, indent=2, sort_keys=True)
-        os.replace(tmp_state, state_path)
+        os.replace(tmp_state, LIVE_STATE_PATH)
     except Exception as e:
         print(f"Warning: failed to write live preview ({e})")
 

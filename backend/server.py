@@ -28,7 +28,7 @@ from fastapi.staticfiles import StaticFiles
 # Import shared logic from backend modules
 from backend.config import (
     EASTER_EGGS_DIR, EASTER_EGGS_MANIFEST, EASTER_EGGS_OVERRIDE,
-    EASTER_EGGS_SETTINGS, LIVE_DIR, LIVE_STATE_FILENAME, TV_IP,
+    EASTER_EGGS_SETTINGS, LIVE_DIR, LIVE_STATE_PATH, TV_IP,
     DATA_DIR, FACES_DIR, ENCODINGS_FILE, USE_PYTHON_DOORBELL_PUSH, ASSETS_DIR
 )
 from backend.integrations.samsung import connect_to_tv, update_tv_art
@@ -50,7 +50,6 @@ import tempfile
 MANIFEST_PATH = EASTER_EGGS_MANIFEST
 OVERRIDE_PATH = EASTER_EGGS_OVERRIDE
 SETTINGS_PATH = EASTER_EGGS_SETTINGS
-LIVE_STATE_PATH = os.path.join(LIVE_DIR, LIVE_STATE_FILENAME)
 
 DEFAULT_SETTINGS: dict[str, Any] = {
     # 1 in N chance per cycle. Set to 0 to disable easter eggs.

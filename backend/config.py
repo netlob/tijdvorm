@@ -35,8 +35,9 @@ EASTER_EGGS_MANIFEST = os.path.join(DATA_DIR, "manifest.json")
 EASTER_EGGS_OVERRIDE = os.path.join(DATA_DIR, "override.json")
 EASTER_EGGS_SETTINGS = os.path.join(DATA_DIR, "settings.json")
 SAUNA_LOG_FILE = os.path.join(DATA_DIR, "sauna_log.json")
-LIVE_PREVIEW_FILENAME = "preview.png"
-LIVE_STATE_FILENAME = "state.json" # Kept in live/ for now as it relates to preview.png
+os.makedirs(LIVE_DIR, exist_ok=True)
+LIVE_PREVIEW_PATH = os.path.join(LIVE_DIR, "preview.png")
+LIVE_STATE_PATH = os.path.join(LIVE_DIR, "state.json")
 
 # Face Recognition
 FACES_DIR = os.path.join(DATA_DIR, "faces")

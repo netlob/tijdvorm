@@ -15,7 +15,7 @@ from concurrent.futures import ThreadPoolExecutor
 # Import shared logic from backend modules
 from backend.config import (
     EASTER_EGGS_DIR, EASTER_EGGS_MANIFEST, EASTER_EGGS_OVERRIDE,
-    EASTER_EGGS_SETTINGS, LIVE_DIR, LIVE_STATE_FILENAME, TV_IP,
+    EASTER_EGGS_SETTINGS, LIVE_DIR, LIVE_STATE_PATH, TV_IP,
     DATA_DIR, FACES_DIR, ENCODINGS_FILE
 )
 from backend.integrations.samsung import connect_to_tv, update_tv_art
@@ -38,7 +38,6 @@ from fastapi.staticfiles import StaticFiles
 MANIFEST_PATH = EASTER_EGGS_MANIFEST
 OVERRIDE_PATH = EASTER_EGGS_OVERRIDE
 SETTINGS_PATH = EASTER_EGGS_SETTINGS
-LIVE_STATE_PATH = os.path.join(LIVE_DIR, LIVE_STATE_FILENAME)
 
 DEFAULT_SETTINGS: dict[str, Any] = {
     # 1 in N chance per cycle. Set to 0 to disable easter eggs.
@@ -390,7 +389,7 @@ def live_preview() -> dict[str, Any]:
     # Normalize: ensure url is present only if file exists
     url = data.get("url")
     if isinstance(url, str) and url.startswith("/live/"):
-        path = os.path.join(LIVE_DIR, os.path.basename(url))
+        path = os.path.basename(url)
         if not os.path.exists(path):
             url = None
     else:
