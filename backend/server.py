@@ -13,7 +13,7 @@ import asyncio
 import subprocess
 import signal
 import numpy as np
-import face_recognition
+# import face_recognition  <-- Moved to lazy import to avoid startup crashes if models are missing
 import pickle
 from PIL import Image, ImageDraw, ImageFont
 from datetime import datetime, timezone
@@ -572,6 +572,14 @@ def load_known_faces():
     """Loads face encodings from pickle file if exists, else warns."""
     global KNOWN_FACE_ENCODINGS, KNOWN_FACE_NAMES
     
+    # Lazy import to prevent server crash if face_recognition is broken
+    try:
+        global face_recognition
+        import face_recognition
+    except (ImportError, SystemExit, Exception) as e:
+        print(f"[Face Rec] Failed to import face_recognition: {e}. Feature disabled.", flush=True)
+        return
+
     print("[Face Rec] Loading known faces...", flush=True)
     
     if os.path.exists(ENCODINGS_FILE):
@@ -588,7 +596,7 @@ def load_known_faces():
     print("[Face Rec] No cache found or load failed. Please run 'python scripts/train_faces.py'.", flush=True)
     print("[Face Rec] Starting with empty face database.", flush=True)
 
-# Load faces on startup
+# Load faces on startup (lazily if possible, but here we just call it safe now)
 load_known_faces()
 
 def fetch_and_process_doorbell_snapshot():
@@ -636,17 +644,26 @@ def fetch_and_process_doorbell_snapshot():
         img_np = np.array(img_cropped)
         small_frame = np.ascontiguousarray(img_np[::4, ::4])
         
-        face_locations = face_recognition.face_locations(small_frame)
-        face_encodings = face_recognition.face_encodings(small_frame, face_locations)
-        
-        recognized_names = []
-        for face_encoding in face_encodings:
-            matches = face_recognition.compare_faces(KNOWN_FACE_ENCODINGS, face_encoding, tolerance=0.6)
-            name = "Unknown"
-            if True in matches:
-                first_match_index = matches.index(True)
-                name = KNOWN_FACE_NAMES[first_match_index]
-                recognized_names.append(name)
+        try:
+            # Ensure face_recognition is available
+            if 'face_recognition' not in globals():
+                import face_recognition
+                
+            face_locations = face_recognition.face_locations(small_frame)
+            face_encodings = face_recognition.face_encodings(small_frame, face_locations)
+            
+            recognized_names = []
+            for face_encoding in face_encodings:
+                matches = face_recognition.compare_faces(KNOWN_FACE_ENCODINGS, face_encoding, tolerance=0.6)
+                name = "Unknown"
+                if True in matches:
+                    first_match_index = matches.index(True)
+                    name = KNOWN_FACE_NAMES[first_match_index]
+                    recognized_names.append(name)
+        except (ImportError, SystemExit, Exception) as e:
+            print(f"[Face Rec] Detection failed or library missing: {e}")
+            face_locations = []
+            recognized_names = []
 
         # Draw
         draw = ImageDraw.Draw(img_cropped)
