@@ -26,8 +26,14 @@ echo "EDID Information:"
 vcgencmd edidparser /sys/class/drm/card*/edid 2>/dev/null | head -20 || echo "EDID not readable"
 
 echo -e "\n3. HDMI Configuration:"
-# Check config.txt for HDMI settings
-grep -E "^(hdmi_|display_)" /boot/config.txt 2>/dev/null || echo "No HDMI config found in /boot/config.txt"
+# Check both possible config.txt locations
+if [ -f /boot/config.txt ]; then
+    grep -E "^(hdmi_|display_)" /boot/config.txt 2>/dev/null || echo "No HDMI config found in /boot/config.txt"
+elif [ -f /boot/firmware/config.txt ]; then
+    grep -E "^(hdmi_|display_)" /boot/firmware/config.txt 2>/dev/null || echo "No HDMI config found in /boot/firmware/config.txt"
+else
+    echo "No config.txt found"
+fi
 
 echo -e "\n4. HyperHDR Status:"
 # Check if HyperHDR is running and its config

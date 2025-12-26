@@ -7,6 +7,10 @@ xset -dpms
 xset s off
 xset s noblank
 
+# Rotate the display for Portrait TV
+# We send 1920x1080 signal, but render 1080x1920 desktop
+xrandr --output HDMI-1 --rotate right
+
 # Start window manager in background
 openbox &
 
