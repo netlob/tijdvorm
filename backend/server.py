@@ -966,7 +966,7 @@ async def view_doorbell():
     <head>
         <title>Doorbell View</title>
         <style>
-            body { margin: 0; padding: 0; background: black; overflow: hidden; height: 100vh; display: flex; justify-content: center; align-items: center; }
+            body { margin: 0; padding: 0; background: green; overflow: hidden; height: 100vh; display: flex; justify-content: center; align-items: center; }
             img { width: 100%; height: 100%; object-fit: cover; }
         </style>
     </head>
