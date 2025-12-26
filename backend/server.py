@@ -927,7 +927,7 @@ async def render_doorbell(request: Request):
         background=tasks,
     )
 
-def get_camera_frame_generator(rotate: bool = True):
+def get_camera_frame_generator():
     """
     Generator that endlessly yields multipart frames for MJPEG streaming.
     Loops as fast as possible to keep stream live.
@@ -938,10 +938,8 @@ def get_camera_frame_generator(rotate: bool = True):
         if img_processed:
             try:
                 # Rotate
-                if rotate:
-                    img_rotated = img_processed.rotate(180)
-                else:
-                    img_rotated = img_processed
+                # img_rotated = img_processed.rotate(180)
+                img_rotated = img_processed
                 img_io = io.BytesIO()
                 img_rotated.save(img_io, 'JPEG', quality=90)
                 frame_bytes = img_io.getvalue()
@@ -980,13 +978,13 @@ async def view_doorbell():
     """
 
 @app.get("/api/stream/doorbell")
-async def stream_doorbell(rotate: bool = Query(default=True)):
+async def stream_doorbell():
     """
     MJPEG Stream for live doorbell view on TV.
     Content-Type: multipart/x-mixed-replace; boundary=frame
     """
     return StreamingResponse(
-        get_camera_frame_generator(rotate), 
+        get_camera_frame_generator(), 
         media_type="multipart/x-mixed-replace; boundary=frame",
         headers={
             "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
