@@ -8,17 +8,20 @@ import json
 import shutil
 import requests
 import io
+import time
 import asyncio
+import subprocess
+import signal
 import numpy as np
 import face_recognition
 import pickle
 from PIL import Image, ImageDraw, ImageFont
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Optional, Union
 from concurrent.futures import ThreadPoolExecutor
 
-from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
-from fastapi.responses import StreamingResponse
+from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Request, Response
+from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -37,6 +40,9 @@ from backend.features.easter_eggs import (
 from backend.features.sauna import generate_sauna_image
 from backend.features.timeform import generate_timeform_image
 from backend.features.preview import write_live_preview
+from backend.integrations.airplay import play_url_on_tv, get_local_ip, stop_airplay
+from backend.integrations.dlna import play_url_via_dlna, stop_dlna
+import tempfile
 
 # Constants from config are used where possible
 # FACES_DIR, ENCODINGS_FILE imported from config
@@ -143,7 +149,7 @@ def _load_override() -> dict[str, Any]:
         return {"filename": None, "set_at": None}
 
 
-def _save_override(filename: str | None) -> None:
+def _save_override(filename: Optional[str]) -> None:
     _ensure_dirs()
     tmp_path = OVERRIDE_PATH + ".tmp"
     payload = {"filename": filename, "set_at": _utc_now_iso() if filename else None}
@@ -194,7 +200,82 @@ app.add_middleware(
 )
 
 _ensure_dirs()
-app.mount("/eastereggs", StaticFiles(directory=EASTER_EGGS_DIR), name="eastereggs")
+app.mount("/hls", StaticFiles(directory="data/hls"), name="hls")
+
+@app.on_event("startup")
+async def _startup_ffmpeg():
+    # Start persistent ffmpeg transcoder so HLS segments stay hot
+    start_transcoding()
+
+
+@app.on_event("shutdown")
+async def _shutdown_ffmpeg():
+    stop_transcoding()
+
+# Global variable to track the ffmpeg process (persistent, hot pipeline)
+FFMPEG_PROCESS = None
+
+def _spawn_ffmpeg_hls():
+    """
+    Launch persistent ffmpeg to keep HLS segments warm.
+    Returns Popen instance.
+    """
+    # Ensure HLS directory exists
+    os.makedirs("data/hls", exist_ok=True)
+
+    # Clean up old segments
+    for f in os.listdir("data/hls"):
+        try:
+            os.remove(os.path.join("data/hls", f))
+        except Exception:
+            pass
+
+    rtsp_url = "rtsp://api:peepeepoopoo@nvr.netlob:554/h264Preview_01_main"
+    filter_complex = "crop=in_w:in_h-60:0:60,scale=-1:1920,crop=1080:1920:(in_w-1080)/2:0,transpose=2,transpose=2"
+
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-rtsp_transport", "tcp",
+        "-i", rtsp_url,
+        "-vf", filter_complex,
+        "-c:v", "libx264",
+        "-preset", "ultrafast",
+        "-tune", "zerolatency",
+        "-b:v", "3000k",
+        "-maxrate", "3000k",
+        "-bufsize", "3000k",
+        "-g", "10",             # keyframe every 0.5s (20fps source)
+        "-sc_threshold", "0",
+        "-f", "hls",
+        "-hls_time", "0.5",     # 0.5s segments for low startup
+        "-hls_list_size", "3",  # keep only 3 segments
+        "-hls_flags", "delete_segments+append_list+omit_endlist",
+        "-hls_segment_filename", "data/hls/segment_%03d.ts",
+        "data/hls/playlist.m3u8"
+    ]
+
+    print(f"[Transcode] Starting ffmpeg (persistent): {' '.join(cmd)}")
+    return subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def start_transcoding():
+    global FFMPEG_PROCESS
+    if FFMPEG_PROCESS and FFMPEG_PROCESS.poll() is None:
+        return  # Already running
+    FFMPEG_PROCESS = _spawn_ffmpeg_hls()
+
+
+def stop_transcoding():
+    global FFMPEG_PROCESS
+    if FFMPEG_PROCESS and FFMPEG_PROCESS.poll() is None:
+        print("[Transcode] Stopping ffmpeg...")
+        FFMPEG_PROCESS.terminate()
+        try:
+            FFMPEG_PROCESS.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            FFMPEG_PROCESS.kill()
+    FFMPEG_PROCESS = None
 app.mount("/live", StaticFiles(directory=LIVE_DIR), name="live")
 
 
@@ -518,7 +599,7 @@ def fetch_and_process_doorbell_snapshot():
         # img.crop((left, top, right, bottom))
         w, h = img.size
         # Cut 60 from top
-        img = img.crop((0, 60, w, h))
+        img = img.crop((0, 0, w, h - 60))
         w, h = img.size # 1920 x 2500
         
         # 2. Resize so height becomes 1920
@@ -627,13 +708,38 @@ def _handle_doorbell(data: dict[str, Any], background_tasks: BackgroundTasks) ->
     # Enable Loop if not already running
     if not DOORBELL_ACTIVE:
         DOORBELL_ACTIVE = True
-        background_tasks.add_task(doorbell_recognition_loop)
+        # background_tasks.add_task(doorbell_recognition_loop)
     
     # Trigger one immediate fetch/process so the file is ready
     fetch_and_process_doorbell_snapshot()
     
     filename = "doorbell.jpg"
     _save_override(filename)
+    
+    # Start Transcoding
+    start_transcoding()
+    
+    # Wait a bit for HLS to generate first segment
+    # This effectively makes the webhook async/slow if we await, but we are in sync function here if called directly.
+    # Actually _handle_doorbell is sync. We should probably background this or just accept the latency.
+    # But AirPlay needs the URL to be valid.
+    
+    # Try DLNA Stream (HLS)
+    # local_ip = get_local_ip()
+    # stream_url = f"http://{local_ip}:8000/hls/playlist.m3u8"
+    
+    # print(f"[Doorbell] Attempting DLNA stream to TV: {stream_url}", flush=True)
+    
+    # We delay the command slightly to let ffmpeg create the playlist
+    # async def delayed_play():
+    #    await asyncio.sleep(2)  # Reduced wait time since segments are shorter
+    #    # First try DLNA (more reliable for Samsung TVs with custom HLS)
+    #    success = await asyncio.to_thread(play_url_via_dlna, stream_url)
+    #    if not success:
+    #         print("[Doorbell] DLNA failed, falling back to AirPlay...", flush=True)
+    #         await play_url_on_tv(stream_url)
+        
+    # background_tasks.add_task(delayed_play)
     
     # 4. Immediate TV Update (First Frame) - ONLY if enabled
     if USE_PYTHON_DOORBELL_PUSH:
@@ -665,6 +771,13 @@ async def _handle_doorbell_off() -> dict[str, Any]:
     
     # Stop the loop
     DOORBELL_ACTIVE = False
+    
+    # Stop AirPlay / DLNA
+    # await stop_airplay()
+    # await asyncio.to_thread(stop_dlna)
+    
+    # Stop Transcoding
+    stop_transcoding()
     
     # 1. Clear Override
     _save_override(None)
@@ -715,34 +828,129 @@ async def _handle_doorbell_off() -> dict[str, Any]:
 
     return {"ok": True, "status": "doorbell_off"}
 
-@app.get("/api/render/doorbell")
-async def render_doorbell():
+@app.api_route("/api/render/doorbell.jpg", methods=["GET", "HEAD"])
+async def render_doorbell(request: Request):
     """
-    Fast endpoint to serve the processed doorbell image (rotated for TV).
-    Fetches a FRESH snapshot, processes it, rotates it 180, and streams it back.
+    Serve a processed JPEG with Content-Length (no chunked streaming) for maximum compatibility.
+    Supports HEAD.
     """
-    # Use the shared processing logic to get a PIL Image of the current state
+    # Force .jpg extension in URL for strict DLNA/TV parsers
     img_processed = fetch_and_process_doorbell_snapshot()
-    
     if not img_processed:
         # Fallback to existing file if fetch fails
         filename = "doorbell.jpg"
         file_path = os.path.join(EASTER_EGGS_DIR, filename)
         if os.path.exists(file_path):
-             print("[Doorbell Proxy] Fetch failed, using cached file.")
-             img_processed = Image.open(file_path)
+            # print("[Doorbell Proxy] Fetch failed, using cached file.") # Reduce noise
+            img_processed = Image.open(file_path)
         else:
-             raise HTTPException(status_code=502, detail="Failed to fetch snapshot")
+            raise HTTPException(status_code=502, detail="Failed to fetch snapshot")
+
+    # Rotate 180 for TV
+    img_rotated = img_processed.rotate(180)
+
+    # Save to a temp file to ensure Content-Length header
+    # Using a deterministic name based on time might help caching, but we use random temp for thread safety
+    # Actually, we can reuse a single file path if we lock, but temp is safer.
+    tmp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
+    tmp_path = tmp.name
+    tmp.close()
+    img_rotated.save(tmp_path, "JPEG", quality=90)
+
+    # Prepare headers
+    headers = {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0",
+        "Content-Type": "image/jpeg",
+        "Access-Control-Allow-Origin": "*", # Ensure CORS for TV browser
+    }
+
+    if request.method == "HEAD":
+        try:
+            size = os.path.getsize(tmp_path)
+            headers["Content-Length"] = str(size)
+        except Exception:
+            pass
+        os.remove(tmp_path)
+        return Response(status_code=200, media_type="image/jpeg", headers=headers)
+
+    tasks = BackgroundTasks()
+    tasks.add_task(os.remove, tmp_path)
+    return FileResponse(
+        tmp_path,
+        media_type="image/jpeg",
+        filename="doorbell.jpg",
+        headers=headers,
+        background=tasks,
+    )
+
+def get_camera_frame_generator():
+    """
+    Generator that endlessly yields multipart frames for MJPEG streaming.
+    Loops as fast as possible to keep stream live.
+    """
+    boundary = "frame"
+    while True:
+        img_processed = fetch_and_process_doorbell_snapshot()
+        if img_processed:
+            try:
+                # Rotate
+                img_rotated = img_processed.rotate(180)
+                img_io = io.BytesIO()
+                img_rotated.save(img_io, 'JPEG', quality=90)
+                frame_bytes = img_io.getvalue()
+                
+                # Yield frame in MJPEG format
+                yield (
+                    f"--{boundary}\r\n".encode() +
+                    b"Content-Type: image/jpeg\r\n\r\n" +
+                    frame_bytes +
+                    b"\r\n"
+                )
+            except Exception as e:
+                print(f"[Stream] Error processing frame: {e}")
         
-    try:
-        # Rotate 180 for TV
-        img_rotated = img_processed.rotate(180)
-        
-        img_io = io.BytesIO()
-        img_rotated.save(img_io, 'JPEG', quality=90)
-        img_io.seek(0)
-        
-        return StreamingResponse(img_io, media_type="image/jpeg")
-    except Exception as e:
-        print(f"Error rendering doorbell image: {e}")
-        raise HTTPException(status_code=500, detail="Failed to render image")
+        # Small sleep to limit FPS and CPU usage? 
+        # Without sleep, it will max out CPU fetching snapshots.
+        # 1.0s = 1fps, reasonable for doorbell.
+        time.sleep(1.0)
+
+@app.get("/api/stream/doorbell")
+async def stream_doorbell():
+    """
+    MJPEG Stream for live doorbell view on TV.
+    Content-Type: multipart/x-mixed-replace; boundary=frame
+    """
+    return StreamingResponse(
+        get_camera_frame_generator(), 
+        media_type="multipart/x-mixed-replace; boundary=frame",
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0"
+        }
+    )
+
+@app.post("/api/ha")
+async def ha_webhook(payload: dict[str, Any], background_tasks: BackgroundTasks) -> dict[str, Any]:
+    """
+    Unified endpoint for Home Assistant automations.
+    Payload format:
+      {
+        "action": "doorbell" | "doorbell_on" | "doorbell_off",
+        "data": { ... }
+      }
+    """
+    action = payload.get("action")
+    data = payload.get("data", {})
+    if not isinstance(data, dict):
+        data = {}
+
+    if action == "doorbell" or action == "doorbell_on":
+        return _handle_doorbell(data, background_tasks)
+    elif action == "doorbell_off":
+        return await _handle_doorbell_off()
+    
+    raise HTTPException(status_code=400, detail=f"Unknown action: {action}")
+

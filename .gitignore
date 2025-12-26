@@ -185,3 +185,4 @@ frontend/.vite/
 *.pid
 
 .DS_Store
+/test_venv
