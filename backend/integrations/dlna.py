@@ -1,5 +1,7 @@
 import logging
-import upnpclient
+# import upnpclient  <-- Removed to avoid lxml compilation errors on Python 3.13
+upnpclient = None
+
 from backend.config import TV_IP
 
 # Configure logging
@@ -9,6 +11,10 @@ def play_url_via_dlna(url: str, tv_ip: str = TV_IP) -> bool:
     """
     Attempts to play a video URL on the TV using DLNA (AVTransport).
     """
+    if upnpclient is None:
+        logger.error("upnpclient is not installed. Cannot use DLNA.")
+        return False
+
     try:
         logger.info(f"Scanning for UPnP devices to find TV at {tv_ip}...")
         # Note: upnpclient.discover() might be slow or unreliable if multicast is blocked.
@@ -95,6 +101,9 @@ def play_url_via_dlna(url: str, tv_ip: str = TV_IP) -> bool:
         return False
 
 def stop_dlna(tv_ip: str = TV_IP):
+    if upnpclient is None:
+        return
+
     try:
         devices = upnpclient.discover()
         target_device = None
