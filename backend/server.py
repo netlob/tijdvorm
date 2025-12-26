@@ -784,12 +784,23 @@ def _handle_doorbell(data: dict[str, Any], background_tasks: BackgroundTasks) ->
     
     # 5. HDMI Switch & Display (Pi)
     # Start display on remote HDMI (Pi)
-    print(f"[Doorbell] Switching TV to HDMI ({HDMI_SOURCE_KEY}) and showing stream...", flush=True)
+    print(f"[Doorbell] Starting HDMI display stream...", flush=True)
     # Use public URL so Pi can reach us
-    start_hdmi_display(f"{BACKEND_PUBLIC_URL}/view/doorbell")
-    background_tasks.add_task(switch_to_hdmi, TV_IP, HDMI_SOURCE_KEY)
+    # Pass 'ready_callback' param so the page calls us back when image loads
+    ready_callback = f"{BACKEND_PUBLIC_URL}/api/doorbell/ready"
+    start_hdmi_display(f"{BACKEND_PUBLIC_URL}/view/doorbell?callback={ready_callback}")
+    
+    # We DO NOT switch HDMI yet. We wait for the /api/doorbell/ready callback.
     
     return {"ok": True, "status": "doorbell_active"}
+
+@app.post("/api/doorbell/ready")
+async def doorbell_stream_ready(background_tasks: BackgroundTasks):
+    """Called by the frontend (Pi browser) when the first frame is loaded."""
+    global TV_BUSY
+    print(f"[Doorbell] Stream ready! Switching TV to HDMI ({HDMI_SOURCE_KEY})...", flush=True)
+    background_tasks.add_task(switch_to_hdmi, TV_IP, HDMI_SOURCE_KEY)
+    return {"ok": True}
 
 async def _initial_push(file_path: str):
     """Push the initial frame in background to not block the request, but immediately."""
@@ -996,19 +1007,37 @@ def fetch_fast_snapshot():
         return None
 
 @app.get("/view/doorbell", response_class=HTMLResponse)
-async def view_doorbell():
-    return """
+async def view_doorbell(request: Request):
+    callback = request.query_params.get("callback")
+    return f"""
     <!DOCTYPE html>
     <html>
     <head>
         <title>Doorbell View</title>
         <style>
-            body { margin: 0; padding: 0; background: green; overflow: hidden; height: 100vh; display: flex; justify-content: center; align-items: center; }
-            img { width: 100%; height: 100%; object-fit: cover; }
+            body {{ margin: 0; padding: 0; background: black; overflow: hidden; height: 100vh; display: flex; justify-content: center; align-items: center; }}
+            img {{ width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 0.2s; }}
+            img.loaded {{ opacity: 1; }}
         </style>
     </head>
     <body>
-        <img src="/api/stream/doorbell" alt="Doorbell Stream">
+        <img id="stream" src="/api/stream/doorbell" alt="Doorbell Stream" onerror="this.src='/api/stream/doorbell?t='+new Date().getTime()">
+        <script>
+            const img = document.getElementById('stream');
+            const callbackUrl = "{callback}";
+            
+            // When first frame loads
+            img.onload = function() {{
+                if (!img.classList.contains('loaded')) {{
+                    img.classList.add('loaded');
+                    if (callbackUrl && callbackUrl !== "None") {{
+                        console.log("Stream loaded, calling callback:", callbackUrl);
+                        fetch(callbackUrl, {{ method: 'POST' }})
+                            .catch(e => console.error("Callback failed:", e));
+                    }}
+                }}
+            }};
+        </script>
     </body>
     </html>
     """
