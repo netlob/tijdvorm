@@ -10,6 +10,21 @@ echo -e "\n2. Display Information:"
 vcgencmd get_lcd_info  # Should show resolution if display is connected
 vcgencmd dispmanx_list  # List displays
 
+# Try tvservice if available (older Raspberry Pi OS)
+if command -v tvservice >/dev/null 2>&1; then
+    echo "TV Service Status:"
+    tvservice -s
+else
+    echo "tvservice not available (newer Raspberry Pi OS)"
+fi
+
+# Alternative display info
+echo "Display Power Status:"
+vcgencmd display_power 0
+
+echo "EDID Information:"
+vcgencmd edidparser /sys/class/drm/card*/edid 2>/dev/null | head -20 || echo "EDID not readable"
+
 echo -e "\n3. HDMI Configuration:"
 # Check config.txt for HDMI settings
 grep -E "^(hdmi_|display_)" /boot/config.txt 2>/dev/null || echo "No HDMI config found in /boot/config.txt"
