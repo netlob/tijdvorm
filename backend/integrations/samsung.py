@@ -91,7 +91,7 @@ def select_tv_art(tv, content_id, preserve_ids=None):
     """Select a previously uploaded piece of TV art, then cleanup while preserving cached IDs."""
     try:
         preserve_ids = set(preserve_ids or [])
-        # tv.art().set_artmode(True)
+        tv.art().set_artmode(True)
         tv.art().select_image(content_id, show=True)
         preserve_ids.add(content_id)
         _delete_old_user_art(tv, preserve_ids)
