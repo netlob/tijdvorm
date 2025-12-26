@@ -27,6 +27,35 @@ from backend.features.preview import write_live_preview
 
 # --- Main Loop (Synchronous) ---
 
+def interruptible_sleep(interval_minutes, current_override_path):
+    """
+    Sleeps until the next interval minute, but checks for override changes every second.
+    Returns True if interrupted by override change, False otherwise.
+    """
+    current_time = time.time()
+    seconds_past_minute = current_time % 60
+    sleep_seconds = (interval_minutes * 60) - seconds_past_minute
+    
+    # If we are very close to the minute boundary, push to next interval
+    if sleep_seconds < 1:
+        sleep_seconds += (interval_minutes * 60)
+
+    print(f"===== Cycle finished. Sleeping for {sleep_seconds:.2f} seconds until next minute... ====")
+
+    end_time = time.time() + sleep_seconds
+    while time.time() < end_time:
+        # Check if override changed
+        new_override = get_override_image_path()
+        if new_override != current_override_path:
+            print(f"Override changed (Old: {current_override_path}, New: {new_override}). Waking up immediately.")
+            return True
+        
+        # Sleep small amount
+        remaining = end_time - time.time()
+        time.sleep(min(1.0, remaining))
+    
+    return False
+
 def main_loop(tv_ip, interval_minutes):
     """Runs the image generation and TV update periodically."""
     logging.basicConfig(level=logging.INFO)
@@ -90,14 +119,8 @@ def main_loop(tv_ip, interval_minutes):
                     if ok and rotated_for_preview:
                         write_live_preview(rotated_for_preview, {"type": "override", "filename": override_filename})
                     iteration += 1
-                    # Sleep until next cycle
-                    current_time = time.time()
-                    seconds_past_minute = current_time % 60
-                    sleep_seconds = (interval_minutes * 60) - seconds_past_minute
-                    if sleep_seconds == 0:
-                        sleep_seconds = (interval_minutes * 60) - 1
-                    print(f"===== Cycle finished. Sleeping for {sleep_seconds:.2f} seconds until next minute... ====")
-                    time.sleep(sleep_seconds)
+                    # Sleep until next cycle (interruptible)
+                    interruptible_sleep(interval_minutes, override_path)
                     continue
                 else:
                     # First time: upload once and cache content_id
@@ -132,13 +155,7 @@ def main_loop(tv_ip, interval_minutes):
                          if ok and rotated_for_preview:
                              write_live_preview(rotated_for_preview, {"type": "easteregg", "filename": egg_filename})
                          iteration += 1
-                         current_time = time.time()
-                         seconds_past_minute = current_time % 60
-                         sleep_seconds = (interval_minutes * 60) - seconds_past_minute
-                         if sleep_seconds == 0:
-                             sleep_seconds = (interval_minutes * 60) - 1
-                         print(f"===== Cycle finished. Sleeping for {sleep_seconds:.2f} seconds until next minute... ====")
-                         time.sleep(sleep_seconds)
+                         interruptible_sleep(interval_minutes, override_path)
                          continue
                      else:
                          image_path = rotated_for_preview
@@ -178,15 +195,8 @@ def main_loop(tv_ip, interval_minutes):
         except Exception as e:
             print(f"Error in main loop cycle: {e}")
 
-        # Calculate seconds until the next minute
-        current_time = time.time()
-        seconds_past_minute = current_time % 60
-        sleep_seconds = (interval_minutes * 60) - seconds_past_minute
-        if sleep_seconds == 0: # Avoid 0 sleep if exactly on the minute
-            sleep_seconds = (interval_minutes * 60) - 1
-
-        print(f"===== Cycle finished. Sleeping for {sleep_seconds:.2f} seconds until next minute... ====")
-        time.sleep(sleep_seconds)
+        # Calculate seconds until the next minute (interruptible)
+        interruptible_sleep(interval_minutes, override_path)
         iteration += 1
 
 if __name__ == "__main__":
