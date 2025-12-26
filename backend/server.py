@@ -205,12 +205,14 @@ app.mount("/hls", StaticFiles(directory="data/hls"), name="hls")
 @app.on_event("startup")
 async def _startup_ffmpeg():
     # Start persistent ffmpeg transcoder so HLS segments stay hot
-    start_transcoding()
+    # start_transcoding() # Disabled to save CPU
+    pass
 
 
 @app.on_event("shutdown")
 async def _shutdown_ffmpeg():
-    stop_transcoding()
+    # stop_transcoding()
+    pass
 
 # Global variable to track the ffmpeg process (persistent, hot pipeline)
 FFMPEG_PROCESS = None
