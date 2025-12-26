@@ -33,19 +33,56 @@ def start_display(req: DisplayRequest):
     # Create the start script dynamically or just pass URL to it
     # We will pass the URL as an argument to the start script
     
+    # Check if X is already running
+    x_running = False
     try:
-        # Start new process group so we can kill it reliably
-        # We run 'xinit' which starts X and then our script
-        # Note: We need to run this as the current user, assuming they have console rights (default on Pi)
-        
-        cmd = ["/usr/bin/xinit", START_SCRIPT, req.url, "--", "-nocursor"]
-        
-        BROWSER_PROCESS = subprocess.Popen(
-            cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True
-        )
+        # Check for X lock file or process
+        # Simple check: see if /tmp/.X11-unix/X0 exists
+        if os.path.exists("/tmp/.X11-unix/X0"):
+            x_running = True
+    except:
+        pass
+
+    try:
+        if x_running:
+            # X is running, just launch chromium on DISPLAY=:0
+            logger.info("X server detected. Launching Chromium directly on :0")
+            env = os.environ.copy()
+            env["DISPLAY"] = ":0"
+            
+            # We use the start_kiosk script but we need to verify it handles being called directly
+            # Actually, start_kiosk does xset/openbox which we might not need if openbox is already running
+            # Let's just run chromium directly to be safe
+            cmd = [
+                "chromium-browser",
+                "--no-first-run",
+                "--kiosk",
+                "--incognito",
+                "--disable-infobars",
+                "--check-for-update-interval=31536000",
+                "--window-position=0,0",
+                "--window-size=1080,1920",
+                req.url
+            ]
+            
+            BROWSER_PROCESS = subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+                env=env
+            )
+        else:
+            # X not running, use xinit
+            logger.info("No X server detected. Starting xinit...")
+            cmd = ["/usr/bin/xinit", START_SCRIPT, req.url, "--", "-nocursor"]
+            BROWSER_PROCESS = subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True
+            )
+
         return {"status": "started", "pid": BROWSER_PROCESS.pid}
     except FileNotFoundError:
         logger.error("xinit not found. Please run setup_pi.sh.")
