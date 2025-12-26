@@ -1,0 +1,14 @@
+[Unit]
+Description=Tijdvorm Streamer
+After=network.target
+
+[Service]
+User=pi
+WorkingDirectory=/home/pi/streamer
+ExecStart=/home/pi/streamer/run.sh
+Restart=always
+Environment=DISPLAY=:0
+
+[Install]
+WantedBy=multi-user.target
+

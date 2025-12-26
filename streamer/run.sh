@@ -8,6 +8,6 @@ if [ ! -d "venv" ]; then
     ./venv/bin/pip install -r requirements.txt
 fi
 
-echo "Starting Tijdvorm Streamer on port 8001..."
-./venv/bin/uvicorn main:app --host 0.0.0.0 --port 8001
+echo "Starting Tijdvorm Streamer on port 8008..."
+./venv/bin/uvicorn main:app --host 0.0.0.0 --port 8008
 
