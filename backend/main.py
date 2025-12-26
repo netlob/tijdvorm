@@ -25,9 +25,9 @@ from backend.features.sauna import generate_sauna_image
 from backend.features.timeform import generate_timeform_image
 from backend.features.preview import write_live_preview
 
-# --- Main Loop (Synchronous) ---
+# --- Main Loop (Async) ---
 
-def interruptible_sleep(interval_minutes, current_override_path):
+async def interruptible_sleep_async(interval_minutes, current_override_path):
     """
     Sleeps until the next interval minute, but checks for override changes every second.
     Returns True if interrupted by override change, False otherwise.
@@ -52,22 +52,24 @@ def interruptible_sleep(interval_minutes, current_override_path):
         
         # Sleep small amount
         remaining = end_time - time.time()
-        time.sleep(min(1.0, remaining))
+        await asyncio.sleep(min(1.0, remaining))
     
     return False
 
-def main_loop(tv_ip, interval_minutes):
+async def main_loop(tv_ip, interval_minutes):
     """Runs the image generation and TV update periodically."""
     logging.basicConfig(level=logging.INFO)
     print(f"Starting main loop. TV IP: {tv_ip}, Update Interval: {interval_minutes} minutes.")
     
     # Check reachability before initial connection
+    # is_tv_reachable is still sync, which is fine, but we could wrap it if needed.
+    # Since it might block, ideally run in executor, but for now we keep it simple.
     if not is_tv_reachable(tv_ip):
          print(f"TV at {tv_ip} is initially unreachable. It will be checked in the loop.")
          tv = False
     else:
         try:
-             tv = connect_to_tv(tv_ip)
+             tv = await connect_to_tv(tv_ip)
         except Exception as e:
             print(f"Initial connection failed: {e}")
             tv = False
@@ -78,24 +80,29 @@ def main_loop(tv_ip, interval_minutes):
         # If doorbell is active, we PAUSE everything. HA is handling the TV.
         if is_doorbell_active():
             print("===== Doorbell is ACTIVE (controlled by HA). Pausing TV updates... =====")
-            time.sleep(5) # Check again in 5s
+            await asyncio.sleep(5) # Check again in 5s
             continue
 
         # Check if TV is reachable
         if not is_tv_reachable(tv_ip):
             print(f"\n===== TV at {tv_ip} is unreachable (Ping failed). =====")
             print(f"Sleeping for 10 seconds before retrying...")
-            time.sleep(10)
+            await asyncio.sleep(10)
             continue
 
         if iteration % 10 == 0 or tv is False:
             print("Reconnecting to TV...")
+            if tv:
+                try:
+                    await tv.close()
+                except:
+                    pass
             try:
-                tv = connect_to_tv(tv_ip)
+                tv = await connect_to_tv(tv_ip)
             except Exception as e:
                 print(f"Connection failed even after successful ping: {e}")
                 tv = False
-                time.sleep(10)
+                await asyncio.sleep(10)
                 continue
 
         print(f"\n===== {time.strftime('%Y-%m-%d %H:%M:%S')} - Running Update Cycle {iteration} ====")
@@ -115,12 +122,12 @@ def main_loop(tv_ip, interval_minutes):
                 rotated_for_preview = prepare_rotated_image(override_path)
                 if cached_id:
                     print(f"Reusing cached TV content_id for override: {cached_id}")
-                    ok = select_tv_art(tv, cached_id, preserve_ids=preserve)
+                    ok = await select_tv_art(tv, cached_id, preserve_ids=preserve)
                     if ok and rotated_for_preview:
                         write_live_preview(rotated_for_preview, {"type": "override", "filename": override_filename})
                     iteration += 1
                     # Sleep until next cycle (interruptible)
-                    interruptible_sleep(interval_minutes, override_path)
+                    await interruptible_sleep_async(interval_minutes, override_path)
                     continue
                 else:
                     # First time: upload once and cache content_id
@@ -151,11 +158,11 @@ def main_loop(tv_ip, interval_minutes):
                      rotated_for_preview = prepare_rotated_image(egg_path)
                      if cached_id:
                          print(f"Reusing cached TV content_id for easteregg: {cached_id}")
-                         ok = select_tv_art(tv, cached_id, preserve_ids=preserve)
+                         ok = await select_tv_art(tv, cached_id, preserve_ids=preserve)
                          if ok and rotated_for_preview:
                              write_live_preview(rotated_for_preview, {"type": "easteregg", "filename": egg_filename})
                          iteration += 1
-                         interruptible_sleep(interval_minutes, override_path)
+                         await interruptible_sleep_async(interval_minutes, override_path)
                          continue
                      else:
                          image_path = rotated_for_preview
@@ -170,17 +177,17 @@ def main_loop(tv_ip, interval_minutes):
                 sauna_status = get_sauna_status()
                 
                 if sauna_status and sauna_status.get('is_on'):
-                     image_path = asyncio.run(generate_sauna_image(sauna_status))
+                     image_path = await generate_sauna_image(sauna_status)
                      live_meta = {"type": "sauna", "filename": os.path.basename(image_path) if image_path else None}
                 else:
                     # Run the async image generation (Timeform)
-                    image_path = asyncio.run(generate_timeform_image())
+                    image_path = await generate_timeform_image()
                     live_meta = {"type": "timeform", "filename": os.path.basename(image_path) if image_path else None}
 
             if image_path:
                 # Run the synchronous TV update
                 preserve = preserved_content_ids()
-                new_id = update_tv_art(tv, image_path, preserve_ids=preserve)
+                new_id = await update_tv_art(tv, image_path, preserve_ids=preserve)
                 if new_id:
                     # Cache content_id only for eastereggs/override (files under eastereggs/)
                     try:
@@ -196,7 +203,7 @@ def main_loop(tv_ip, interval_minutes):
             print(f"Error in main loop cycle: {e}")
 
         # Calculate seconds until the next minute (interruptible)
-        interruptible_sleep(interval_minutes, override_path)
+        await interruptible_sleep_async(interval_minutes, override_path)
         iteration += 1
 
 if __name__ == "__main__":
@@ -206,4 +213,4 @@ if __name__ == "__main__":
        print("!!! Please edit the script and set TV_IP to your Samsung Frame TV's actual IP address.\n")
        # exit(1) # Optional: Uncomment to prevent running with placeholder
     # update_tv_art(TV_IP, '/Users/sjoerdbolten/Documents/Projects/tijdvorm/py/timeform_art.png')
-    main_loop(TV_IP, UPDATE_INTERVAL_MINUTES)
+    asyncio.run(main_loop(TV_IP, UPDATE_INTERVAL_MINUTES))

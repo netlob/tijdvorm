@@ -186,3 +186,4 @@ frontend/.vite/
 
 .DS_Store
 /test_venv
+/debug/airplay/node_modules

@@ -736,12 +736,16 @@ async def doorbell_recognition_loop():
 
     print("[Doorbell Loop] Stopped.", flush=True)
 
-def _push_to_tv_sync(image_path):
-    """Helper to run TV update synchronously."""
-    tv = connect_to_tv(TV_IP)
+async def push_to_tv_async(image_path):
+    """Helper to run TV update asynchronously."""
+    tv = await connect_to_tv(TV_IP)
     if tv:
-        preserve = preserved_content_ids()
-        update_tv_art(tv, image_path, preserve_ids=preserve)
+        try:
+            preserve = preserved_content_ids()
+            await update_tv_art(tv, image_path, preserve_ids=preserve)
+        finally:
+            # Ensure we close the connection in server context as it's a one-off
+            await tv.close()
 
 
 def _handle_doorbell(data: dict[str, Any], background_tasks: BackgroundTasks) -> dict[str, Any]:
@@ -783,8 +787,7 @@ async def _initial_push(file_path: str):
         print("[Doorbell] Rotating initial image...", flush=True)
         rotated_path = prepare_rotated_image(file_path)
         if rotated_path:
-            loop = asyncio.get_running_loop()
-            await loop.run_in_executor(None, _push_to_tv_sync, rotated_path)
+            await push_to_tv_async(rotated_path)
     except Exception as e:
          print(f"[Doorbell] Initial push failed: {e}", flush=True)
     finally:
@@ -836,9 +839,8 @@ async def _handle_doorbell_off() -> dict[str, Any]:
 
             if image_path:
                  print(f"[Doorbell] Connecting to TV at {TV_IP}...", flush=True)
-                 # Run sync connection in thread
-                 loop = asyncio.get_running_loop()
-                 await loop.run_in_executor(None, _push_to_tv_sync, image_path)
+                 # Run async connection directly
+                 await push_to_tv_async(image_path)
                  
                  # Update live preview
                  write_live_preview(image_path, live_meta)
