@@ -730,10 +730,10 @@ def _handle_doorbell(data: dict[str, Any], background_tasks: BackgroundTasks) ->
         # background_tasks.add_task(doorbell_recognition_loop)
     
     # Trigger one immediate fetch/process so the file is ready
-    fetch_and_process_doorbell_snapshot()
+    # fetch_and_process_doorbell_snapshot()
     
-    filename = "doorbell.jpg"
-    _save_override(filename)
+    # filename = "doorbell.jpg"
+    # _save_override(filename)
     
     # Start Transcoding - DISABLED
     # start_transcoding()
