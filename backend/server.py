@@ -315,6 +315,24 @@ def list_images() -> dict[str, Any]:
     out.sort(key=lambda x: x["filename"].lower())
     return {"images": out}
 
+@app.get("/eastereggs/{filename}")
+def get_easteregg(filename: str) -> dict[str, Any]:
+    path = os.path.join(EASTER_EGGS_DIR, filename)
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Image not found on disk")
+    return FileResponse(path, media_type=get_media_type(path))
+
+def get_media_type(path: str) -> str:
+    if path.endswith(".png"):
+        return "image/png"
+    if path.endswith(".jpg"):
+        return "image/jpeg"
+    if path.endswith(".jpeg"):
+        return "image/jpeg"
+    if path.endswith(".webp"):
+        return "image/webp"
+    return "application/octet-stream"
+
 @app.get("/api/override")
 def get_override() -> dict[str, Any]:
     data = _load_override()
@@ -601,7 +619,7 @@ def fetch_and_process_doorbell_snapshot():
         # img.crop((left, top, right, bottom))
         w, h = img.size
         # Cut 60 from top
-        img = img.crop((0, 0, w, h - 60))
+        img = img.crop((0, 60, w, h))
         w, h = img.size # 1920 x 2500
         
         # 2. Resize so height becomes 1920
@@ -718,30 +736,13 @@ def _handle_doorbell(data: dict[str, Any], background_tasks: BackgroundTasks) ->
     filename = "doorbell.jpg"
     _save_override(filename)
     
-    # Start Transcoding
-    start_transcoding()
+    # Start Transcoding - DISABLED
+    # start_transcoding()
     
-    # Wait a bit for HLS to generate first segment
-    # This effectively makes the webhook async/slow if we await, but we are in sync function here if called directly.
-    # Actually _handle_doorbell is sync. We should probably background this or just accept the latency.
-    # But AirPlay needs the URL to be valid.
-    
-    # Try DLNA Stream (HLS)
+    # DLNA Stream - DISABLED
     # local_ip = get_local_ip()
     # stream_url = f"http://{local_ip}:8000/hls/playlist.m3u8"
-    
     # print(f"[Doorbell] Attempting DLNA stream to TV: {stream_url}", flush=True)
-    
-    # We delay the command slightly to let ffmpeg create the playlist
-    # async def delayed_play():
-    #    await asyncio.sleep(2)  # Reduced wait time since segments are shorter
-    #    # First try DLNA (more reliable for Samsung TVs with custom HLS)
-    #    success = await asyncio.to_thread(play_url_via_dlna, stream_url)
-    #    if not success:
-    #         print("[Doorbell] DLNA failed, falling back to AirPlay...", flush=True)
-    #         await play_url_on_tv(stream_url)
-        
-    # background_tasks.add_task(delayed_play)
     
     # 4. Immediate TV Update (First Frame) - ONLY if enabled
     if USE_PYTHON_DOORBELL_PUSH:
@@ -779,7 +780,7 @@ async def _handle_doorbell_off() -> dict[str, Any]:
     # await asyncio.to_thread(stop_dlna)
     
     # Stop Transcoding
-    stop_transcoding()
+    # stop_transcoding()
     
     # 1. Clear Override
     _save_override(None)
