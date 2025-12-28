@@ -718,12 +718,16 @@ def fetch_and_process_doorbell_snapshot():
 
         for (top, right, bottom, left), name in zip(face_locations, recognized_names):
             top *= 4; right *= 4; bottom *= 4; left *= 4
-            draw.rectangle(((left, top), (right, bottom)), outline=(0, 255, 0), width=5)
+            if right > left and bottom > top:
+                draw.rectangle(((left, top), (right, bottom)), outline=(0, 255, 0), width=5)
+            
             text_bbox = draw.textbbox((left, bottom), name, font=font)
             text_width = text_bbox[2] - text_bbox[0]
             text_height = text_bbox[3] - text_bbox[1]
-            draw.rectangle(((left, bottom), (left + text_width + 10, bottom + text_height + 10)), fill=(0, 255, 0), outline=(0, 255, 0))
-            draw.text((left + 5, bottom + 5), name, fill=(255, 255, 255, 255), font=font)
+            
+            if text_width > 0 and text_height > 0:
+                draw.rectangle(((left, bottom), (left + text_width + 10, bottom + text_height + 10)), fill=(0, 255, 0), outline=(0, 255, 0))
+                draw.text((left + 5, bottom + 5), name, fill=(255, 255, 255, 255), font=font)
 
         # Save to disk (cache/update state)
         _ensure_dirs()
@@ -835,12 +839,16 @@ async def doorbell_recognition_loop():
                        font = ImageFont.load_default()
 
                    for (top, right, bottom, left), name in faces:
-                       draw.rectangle(((left, top), (right, bottom)), outline=(0, 255, 0), width=5)
+                       if right > left and bottom > top:
+                           draw.rectangle(((left, top), (right, bottom)), outline=(0, 255, 0), width=5)
+                       
                        text_bbox = draw.textbbox((left, bottom), name, font=font)
                        text_width = text_bbox[2] - text_bbox[0]
                        text_height = text_bbox[3] - text_bbox[1]
-                       draw.rectangle(((left, bottom), (left + text_width + 10, bottom + text_height + 10)), fill=(0, 255, 0), outline=(0, 255, 0))
-                       draw.text((left + 5, bottom + 5), name, fill=(255, 255, 255, 255), font=font)
+                       
+                       if text_width > 0 and text_height > 0:
+                           draw.rectangle(((left, bottom), (left + text_width + 10, bottom + text_height + 10)), fill=(0, 255, 0), outline=(0, 255, 0))
+                           draw.text((left + 5, bottom + 5), name, fill=(255, 255, 255, 255), font=font)
                    
                    _ensure_dirs()
                    file_path = os.path.join(DATA_DIR, "doorbell.jpg")
@@ -1099,7 +1107,8 @@ def get_camera_frame_generator():
                 if faces:
                     draw = ImageDraw.Draw(img_to_send)
                     for (top, right, bottom, left), name in faces:
-                        draw.rectangle(((left, top), (right, bottom)), outline=(0, 255, 0), width=5)
+                        if right > left and bottom > top:
+                            draw.rectangle(((left, top), (right, bottom)), outline=(0, 255, 0), width=5)
                         
                         # Prepare Text
                         text_bbox = draw.textbbox((0, 0), name, font=font)
@@ -1124,18 +1133,22 @@ def get_camera_frame_generator():
                         box_y = bottom + 10 # 10px below the face box
                         
                         # Draw Background Box
-                        draw.rectangle(
-                            ((box_x, box_y), (box_x + total_width, box_y + total_height)), 
-                            fill=(0, 255, 0), 
-                            outline=(0, 255, 0)
-                        )
+                        if box_x + total_width > box_x and box_y + total_height > box_y:
+                            draw.rectangle(
+                                ((box_x, box_y), (box_x + total_width, box_y + total_height)), 
+                                fill=(0, 255, 0), 
+                                outline=(0, 255, 0)
+                            )
                         
                         # Draw Image
                         if ref_img:
                             # Paste image
                             # Note: paste modifies the image in place, use mask if needed (but here simple paste is fine)
-                            img_to_send.paste(ref_img, (box_x + padding, box_y + padding))
-                            
+                            try:
+                                img_to_send.paste(ref_img, (int(box_x + padding), int(box_y + padding)))
+                            except Exception as e:
+                                print(f"[Stream] Warning: Failed to paste reference image: {e}")
+                                
                             # Draw Text to the right of image
                             text_x = box_x + padding + ref_width + padding
                             # Center text vertically relative to box
