@@ -22,7 +22,7 @@ except ImportError:
     pass
 
 import pickle
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageOps, ImageFilter
 from datetime import datetime, timezone
 from typing import Any, Optional, Union
 from concurrent.futures import ThreadPoolExecutor
@@ -1105,58 +1105,112 @@ def get_camera_frame_generator():
                 
                 # Draw overlays if faces exist
                 if faces:
-                    draw = ImageDraw.Draw(img_to_send)
+                    # Create RGBA layer for transparent drawing
+                    overlay = Image.new('RGBA', img_to_send.size, (0, 0, 0, 0))
+                    draw_overlay = ImageDraw.Draw(overlay)
+                    
                     for (top, right, bottom, left), name in faces:
-                        if right > left and bottom > top:
-                            draw.rectangle(((left, top), (right, bottom)), outline=(0, 255, 0), width=5)
+                        # Ensure coordinates are valid
+                        if right <= left or bottom <= top:
+                            continue
+                            
+                        # Draw sleek face box (thinner white line with slight shadow or glow effect)
+                        # We simulate glow by drawing slightly thicker transparent lines
+                        # Outer glow
+                        draw_overlay.rectangle(((left, top), (right, bottom)), outline=(0, 0, 0, 80), width=6)
+                        # Main line
+                        draw_overlay.rectangle(((left, top), (right, bottom)), outline=(255, 255, 255, 200), width=2)
                         
                         # Prepare Text
-                        text_bbox = draw.textbbox((0, 0), name, font=font)
+                        # Use a slightly smaller font for elegance if needed, or keep 40
+                        text_bbox = draw_overlay.textbbox((0, 0), name, font=font)
                         text_width = text_bbox[2] - text_bbox[0]
                         text_height = text_bbox[3] - text_bbox[1]
                         
                         # Prepare Reference Image
                         ref_img = KNOWN_FACE_IMAGES.get(name)
-                        ref_width = 0
-                        ref_height = 0
+                        ref_size = 0
+                        
+                        # Process Reference Image (Circle)
+                        ref_icon = None
                         if ref_img:
-                             ref_width, ref_height = ref_img.size
+                             # Resize to a fixed nice size (e.g. 80px)
+                             icon_size = 80
+                             # Create circle mask
+                             mask = Image.new('L', (icon_size, icon_size), 0)
+                             mask_draw = ImageDraw.Draw(mask)
+                             mask_draw.ellipse((0, 0, icon_size, icon_size), fill=255)
+                             
+                             # Fit image to square and apply mask
+                             ref_icon = ImageOps.fit(ref_img, (icon_size, icon_size), centering=(0.5, 0.5))
+                             ref_icon.putalpha(mask)
+                             ref_size = icon_size
 
                         # Total Box Size
-                        # Padding: 10px all around
-                        # Layout: [Image] [Text] if image exists
-                        padding = 10
-                        total_width = padding + (ref_width + padding if ref_img else 0) + text_width + padding
-                        total_height = padding + max(ref_height, text_height) + padding
+                        # Padding inside the label box
+                        padding_x = 20
+                        padding_y = 15
+                        spacing = 20 # Space between icon and text
                         
-                        box_x = left
-                        box_y = bottom + 10 # 10px below the face box
+                        content_width = (ref_size + spacing if ref_icon else 0) + text_width
+                        content_height = max(ref_size, text_height)
                         
-                        # Draw Background Box
-                        if box_x + total_width > box_x and box_y + total_height > box_y:
-                            draw.rectangle(
+                        total_width = padding_x * 2 + content_width
+                        total_height = padding_y * 2 + content_height
+                        
+                        # Position: Centered below the face, or left-aligned if it hits edge?
+                        # Let's Center it relative to the face box
+                        face_center_x = left + (right - left) // 2
+                        box_x = face_center_x - total_width // 2
+                        box_y = bottom + 20 # 20px gap
+                        
+                        # Clamp to screen edges
+                        box_x = max(10, min(box_x, img_to_send.width - total_width - 10))
+                        box_y = max(10, min(box_y, img_to_send.height - total_height - 10))
+                        
+                        # Draw Background Label (Rounded Rectangle)
+                        # Modern dark glass look: Black with high transparency
+                        bg_color = (20, 20, 20, 200) # Dark grey, 80% opacity
+                        
+                        # Draw rounded rect
+                        # Fallback for older PIL if rounded_rectangle not present, but 10.0+ usually has it
+                        try:
+                            draw_overlay.rounded_rectangle(
                                 ((box_x, box_y), (box_x + total_width, box_y + total_height)), 
-                                fill=(0, 255, 0), 
-                                outline=(0, 255, 0)
+                                radius=15, 
+                                fill=bg_color
                             )
+                        except AttributeError:
+                             # Fallback
+                             draw_overlay.rectangle(
+                                ((box_x, box_y), (box_x + total_width, box_y + total_height)), 
+                                fill=bg_color
+                            )
+
+                        # Draw Content
+                        current_x = box_x + padding_x
                         
-                        # Draw Image
-                        if ref_img:
-                            # Paste image
-                            # Note: paste modifies the image in place, use mask if needed (but here simple paste is fine)
-                            try:
-                                img_to_send.paste(ref_img, (int(box_x + padding), int(box_y + padding)))
-                            except Exception as e:
-                                print(f"[Stream] Warning: Failed to paste reference image: {e}")
-                                
-                            # Draw Text to the right of image
-                            text_x = box_x + padding + ref_width + padding
-                            # Center text vertically relative to box
-                            text_y = box_y + (total_height - text_height) // 2 - 5 # adjustment for baseline
-                            draw.text((text_x, text_y), name, fill=(255, 255, 255, 255), font=font)
-                        else:
-                            # Draw Text only
-                            draw.text((box_x + padding, box_y + padding), name, fill=(255, 255, 255, 255), font=font)
+                        # 1. Draw Icon
+                        if ref_icon:
+                            # Center vertically in the box
+                            icon_y = box_y + (total_height - ref_size) // 2
+                            # Paste onto overlay? No, paste onto a separate RGB image then alpha composite?
+                            # 'overlay' is RGBA, so we can paste ref_icon (which has alpha) directly
+                            overlay.alpha_composite(ref_icon, (int(current_x), int(icon_y)))
+                            current_x += ref_size + spacing
+                            
+                        # 2. Draw Text
+                        # Center text vertically
+                        text_y = box_y + (total_height - text_height) // 2 - 5 # Baseline adjustment
+                        draw_overlay.text((current_x, text_y), name, fill=(255, 255, 255, 255), font=font)
+
+                    # Composite overlay onto original image
+                    # img_to_send is RGB (JPEG source). We need to convert it to RGBA to composite, then back.
+                    img_to_send = img_to_send.convert('RGBA')
+                    img_to_send = Image.alpha_composite(img_to_send, overlay)
+                    img_to_send = img_to_send.convert('RGB')
+
+                img_io = io.BytesIO()
 
                 img_io = io.BytesIO()
                 # Reduce JPEG quality slightly for speed (85 vs 90)
