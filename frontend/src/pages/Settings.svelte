@@ -40,7 +40,7 @@
             step="1"
             value={settings?.easter_egg_chance_denominator ?? 10}
             on:input={(e) =>
-              (settings = { ...settings, easter_egg_chance_denominator: Number(e.currentTarget.value) })}
+              (settings.easter_egg_chance_denominator = Number(e.currentTarget.value) )}
           />
         </label>
         <button class={cls(ui.button, ui.buttonPrimary)} on:click={onSave} disabled={saving}>

@@ -546,13 +546,13 @@ def get_settings() -> dict[str, Any]:
     settings = _load_settings()
     # Normalize
     denom = settings.get("easter_egg_chance_denominator", DEFAULT_SETTINGS["easter_egg_chance_denominator"])
-    try:
-        denom = int(denom)
-    except Exception:
-        denom = DEFAULT_SETTINGS["easter_egg_chance_denominator"]
-    if denom < 0:
-        denom = 0
-    return {"easter_egg_chance_denominator": denom}
+    # try:
+    denom_i = int(denom)
+    # except Exception:
+    #     denom = DEFAULT_SETTINGS["easter_egg_chance_denominator"]
+    # if denom < 0:
+    #     denom = 0
+    return {"easter_egg_chance_denominator": denom_i}
 
 
 @app.post("/api/settings")
