@@ -3,9 +3,9 @@ Description=Tijdvorm Streamer
 After=network.target
 
 [Service]
-User=pi
-WorkingDirectory=/home/pi/streamer
-ExecStart=/home/pi/streamer/run.sh
+User=sjoerd
+WorkingDirectory=/home/sjoerd/tijdvorm/streamer
+ExecStart=/home/sjoerd/tijdvorm/streamer/run.sh
 Restart=always
 Environment=DISPLAY=:0
 
