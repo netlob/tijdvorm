@@ -683,12 +683,12 @@ def fetch_and_process_doorbell_snapshot():
         # We want (0, 0, 1080, 1920)
         img_cropped = img_resized.crop((0, 0, TARGET_WIDTH, TARGET_HEIGHT))
         
-        # Detect Faces
         img_np = np.array(img_cropped)
         small_frame = np.ascontiguousarray(img_np[::4, ::4])
         
         try:
             # Ensure face_recognition is available
+            global face_recognition
             if 'face_recognition' not in globals():
                 import face_recognition
                 
@@ -744,8 +744,8 @@ def _detect_faces_on_image(img):
     """
     try:
         # Ensure face_recognition is available
+        global face_recognition
         if 'face_recognition' not in globals():
-            global face_recognition
             import face_recognition
             
         img_np = np.array(img)
@@ -770,6 +770,9 @@ def _detect_faces_on_image(img):
             top *= 4; right *= 4; bottom *= 4; left *= 4
             results.append(((top, right, bottom, left), name))
             
+
+        print(f"[Debug] Results: {results}")
+
         return results
     except (ImportError, SystemExit, Exception) as e:
         # print(f"[Face Rec] Detection failed: {e}")
