@@ -58,7 +58,7 @@ HA_CACHE_TTL_SECONDS = float(os.environ.get("HA_CACHE_TTL_SECONDS", "30.0"))
 USE_PYTHON_DOORBELL_PUSH = False # Set to False if HA handles the display via media_player
 
 # HDMI Control
-HDMI_SOURCE_KEY = os.environ.get("HDMI_SOURCE_KEY", "KEY_HDMI1") # Key to switch TV to HDMI input
+HDMI_SOURCE_KEY = os.environ.get("HDMI_SOURCE_KEY", "HDMI") # Key to switch TV to HDMI input
 # RPi Configuration
 STREAMER_HOST = os.environ.get("STREAMER_HOST", "http://10.0.1.143:8008") # URL of the Pi streamer
 BACKEND_PUBLIC_URL = os.environ.get("BACKEND_PUBLIC_URL", "http://mini.netlob:8000") # URL the Pi should load

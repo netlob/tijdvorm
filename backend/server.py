@@ -695,7 +695,7 @@ def fetch_and_process_doorbell_snapshot():
 
         # Save to disk (cache/update state)
         _ensure_dirs()
-        file_path = os.path.join(EASTER_EGGS_DIR, filename)
+        file_path = os.path.join(DATA_DIR, filename)
         img_cropped.save(file_path, quality=95)
         
         return img_cropped
@@ -778,7 +778,7 @@ def _handle_doorbell(data: dict[str, Any], background_tasks: BackgroundTasks) ->
     # 4. Immediate TV Update (First Frame) - ONLY if enabled
     if USE_PYTHON_DOORBELL_PUSH:
         filename = "doorbell.jpg" # Fix: filename wasn't defined in this scope if unused
-        file_path = os.path.join(EASTER_EGGS_DIR, filename)
+        file_path = os.path.join(DATA_DIR, filename)
         if not TV_BUSY:
             background_tasks.add_task(_initial_push, file_path)
     
@@ -887,6 +887,20 @@ async def _handle_doorbell_off() -> dict[str, Any]:
 
 @app.api_route("/api/render/doorbell.jpg", methods=["GET", "HEAD"])
 async def render_doorbell(request: Request):
+
+    # Prepare headers
+    headers = {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0",
+        "Content-Type": "image/jpeg",
+        "Access-Control-Allow-Origin": "*", # Ensure CORS for TV browser
+    }
+
+
+    if request.method == "HEAD":
+        return Response(status_code=200, headers=headers)
+
     """
     Serve a processed JPEG with Content-Length (no chunked streaming) for maximum compatibility.
     Supports HEAD.
@@ -896,7 +910,7 @@ async def render_doorbell(request: Request):
     if not img_processed:
         # Fallback to existing file if fetch fails
         filename = "doorbell.jpg"
-        file_path = os.path.join(EASTER_EGGS_DIR, filename)
+        file_path = os.path.join(DATA_DIR, filename)
         if os.path.exists(file_path):
             # print("[Doorbell Proxy] Fetch failed, using cached file.") # Reduce noise
             img_processed = Image.open(file_path)
@@ -913,15 +927,6 @@ async def render_doorbell(request: Request):
     tmp_path = tmp.name
     tmp.close()
     img_rotated.save(tmp_path, "JPEG", quality=90)
-
-    # Prepare headers
-    headers = {
-        "Cache-Control": "no-cache, no-store, must-revalidate",
-        "Pragma": "no-cache",
-        "Expires": "0",
-        "Content-Type": "image/jpeg",
-        "Access-Control-Allow-Origin": "*", # Ensure CORS for TV browser
-    }
 
     if request.method == "HEAD":
         try:
