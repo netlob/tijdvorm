@@ -13,6 +13,7 @@ import asyncio
 import subprocess
 import signal
 import numpy as np
+import threading
 # import face_recognition  <-- Moved to lazy import to avoid startup crashes if models are missing
 # Patch for Python 3.13+ missing pkg_resources
 try:
@@ -579,9 +580,16 @@ KNOWN_FACE_NAMES = []
 DOORBELL_ACTIVE = False
 TV_BUSY = False
 
+# Shared state for background detection
+FACE_STATE_LOCK = threading.Lock()
+LATEST_DETECTED_FACES = [] # List of ((top, right, bottom, left), name)
+LATEST_STREAM_FRAME = None # PIL Image
+LATEST_FRAME_TIMESTAMP = 0.0
+KNOWN_FACE_IMAGES = {} # {name: PIL.Image (thumbnail)}
+
 def load_known_faces():
-    """Loads face encodings from pickle file if exists, else warns."""
-    global KNOWN_FACE_ENCODINGS, KNOWN_FACE_NAMES
+    """Loads face encodings from pickle file if exists, and loads reference images."""
+    global KNOWN_FACE_ENCODINGS, KNOWN_FACE_NAMES, KNOWN_FACE_IMAGES
     
     # Lazy import to prevent server crash if face_recognition is broken
     try:
@@ -600,12 +608,36 @@ def load_known_faces():
             KNOWN_FACE_ENCODINGS = data["encodings"]
             KNOWN_FACE_NAMES = data["names"]
             print(f"[Face Rec] Loaded {len(KNOWN_FACE_NAMES)} faces from cache.", flush=True)
-            return
         except Exception as e:
             print(f"[Face Rec] Failed to load cache: {e}", flush=True)
+    else:
+        print("[Face Rec] No cache found. Please run 'python scripts/train_faces.py'.", flush=True)
 
-    print("[Face Rec] No cache found or load failed. Please run 'python scripts/train_faces.py'.", flush=True)
-    print("[Face Rec] Starting with empty face database.", flush=True)
+    # Load reference images for display
+    print("[Face Rec] Loading reference images...", flush=True)
+    KNOWN_FACE_IMAGES = {}
+    try:
+        if os.path.exists(FACES_DIR):
+            for name in os.listdir(FACES_DIR):
+                person_dir = os.path.join(FACES_DIR, name)
+                if os.path.isdir(person_dir) and not name.startswith("."):
+                    # Find first valid image
+                    for f in os.listdir(person_dir):
+                        if f.lower().endswith((".jpg", ".jpeg", ".png")):
+                            try:
+                                img_path = os.path.join(person_dir, f)
+                                img = Image.open(img_path)
+                                # Create thumbnail
+                                img.thumbnail((150, 150))
+                                KNOWN_FACE_IMAGES[name] = img
+                                # print(f"[Face Rec] Loaded reference image for {name}")
+                                break
+                            except Exception:
+                                continue
+    except Exception as e:
+        print(f"[Face Rec] Failed to load reference images: {e}")
+    
+    print(f"[Face Rec] Loaded {len(KNOWN_FACE_IMAGES)} reference images.", flush=True)
 
 # Load faces on startup (lazily if possible, but here we just call it safe now)
 load_known_faces()
@@ -705,39 +737,116 @@ def fetch_and_process_doorbell_snapshot():
         return None
 
 
+def _detect_faces_on_image(img):
+    """
+    Helper to run face recognition on a PIL Image.
+    Returns list of ((top, right, bottom, left), name).
+    """
+    try:
+        # Ensure face_recognition is available
+        if 'face_recognition' not in globals():
+            global face_recognition
+            import face_recognition
+            
+        img_np = np.array(img)
+        # Downscale for speed (1/4)
+        small_frame = np.ascontiguousarray(img_np[::4, ::4])
+        
+        face_locations = face_recognition.face_locations(small_frame)
+        face_encodings = face_recognition.face_encodings(small_frame, face_locations)
+        
+        results = []
+        for face_encoding, loc in zip(face_encodings, face_locations):
+            matches = face_recognition.compare_faces(KNOWN_FACE_ENCODINGS, face_encoding, tolerance=0.6)
+            name = "Unknown"
+            if True in matches:
+                first_match_index = matches.index(True)
+                name = KNOWN_FACE_NAMES[first_match_index]
+            
+            # Scale back up (x4)
+            top, right, bottom, left = loc
+            top *= 4; right *= 4; bottom *= 4; left *= 4
+            results.append(((top, right, bottom, left), name))
+            
+        return results
+    except (ImportError, SystemExit, Exception) as e:
+        # print(f"[Face Rec] Detection failed: {e}")
+        return []
+
+
 async def doorbell_recognition_loop():
     """
     Background loop that runs while DOORBELL_ACTIVE is True.
-    Fetches snapshot -> Detects Faces -> Updates TV if recognized.
+    Uses frames from LATEST_STREAM_FRAME (fed by the stream generator) to detect faces.
+    Updates LATEST_DETECTED_FACES.
     """
-    global DOORBELL_ACTIVE, TV_BUSY
+    global DOORBELL_ACTIVE, LATEST_DETECTED_FACES, LATEST_FRAME_TIMESTAMP
     
-    print("[Doorbell Loop] Started.", flush=True)
+    print("[Doorbell Loop] Started (Background Detection).", flush=True)
+    
+    last_processed_time = 0.0
     
     while DOORBELL_ACTIVE:
-        if TV_BUSY and USE_PYTHON_DOORBELL_PUSH: 
-            await asyncio.sleep(1)
+        await asyncio.sleep(1.0) # 1 FPS
+        
+        # Check for new frame safely
+        current_frame = None
+        current_timestamp = 0.0
+        
+        if LATEST_STREAM_FRAME is not None:
+            # Simple check before lock
+            if LATEST_FRAME_TIMESTAMP > last_processed_time:
+                try:
+                    # We assume reading the reference is atomic enough, but copying is safer if LATEST_STREAM_FRAME is mutated.
+                    # In our case, LATEST_STREAM_FRAME is replaced, not mutated.
+                    current_frame = LATEST_STREAM_FRAME.copy()
+                    current_timestamp = LATEST_FRAME_TIMESTAMP
+                except Exception:
+                    pass
+        
+        if not current_frame:
             continue
             
         try:
-            # Use shared fetch/process logic
-            img = fetch_and_process_doorbell_snapshot()
+            # Run detection in thread pool to avoid blocking async event loop
+            faces = await asyncio.to_thread(_detect_faces_on_image, current_frame)
             
-            # If enabled, Push to TV (logic moved here from old loop)
-            if img and USE_PYTHON_DOORBELL_PUSH:
-                # We need to know if faces were found to decide to push?
-                # The shared function doesn't return that metadata easily.
-                # For now, let's assume if we are using the proxy, we don't push via python loop.
-                # If the user wants python push, they probably aren't using the proxy.
-                pass 
-                
-                # If we really need to support python push again, we'd need to check for changes/faces.
-                # But user explicitly asked for HA render variant where we DON'T push.
+            with FACE_STATE_LOCK:
+                LATEST_DETECTED_FACES = faces
+            
+            # Save the frame with boxes to disk (legacy behavior / cache)
+            # Only save if faces found to avoid IO spam? Or always?
+            # User said "when a face is detected, save that".
+            if faces:
+                try:
+                   # Draw on a copy for saving
+                   save_img = current_frame.copy()
+                   draw = ImageDraw.Draw(save_img)
+                   
+                   # Load font
+                   try:
+                       font = ImageFont.truetype(os.path.join(ASSETS_DIR, "fonts", "Inter-Regular.otf"), 40)
+                   except:
+                       font = ImageFont.load_default()
+
+                   for (top, right, bottom, left), name in faces:
+                       draw.rectangle(((left, top), (right, bottom)), outline=(0, 255, 0), width=5)
+                       text_bbox = draw.textbbox((left, bottom), name, font=font)
+                       text_width = text_bbox[2] - text_bbox[0]
+                       text_height = text_bbox[3] - text_bbox[1]
+                       draw.rectangle(((left, bottom), (left + text_width + 10, bottom + text_height + 10)), fill=(0, 255, 0), outline=(0, 255, 0))
+                       draw.text((left + 5, bottom + 5), name, fill=(255, 255, 255, 255), font=font)
+                   
+                   _ensure_dirs()
+                   file_path = os.path.join(DATA_DIR, "doorbell.jpg")
+                   await asyncio.to_thread(save_img.save, file_path, quality=95)
+                except Exception as e:
+                   print(f"[Doorbell Loop] Error saving detected frame: {e}")
+
+            last_processed_time = current_timestamp
             
         except Exception as e:
             print(f"[Doorbell Loop] Error: {e}", flush=True)
-            
-        await asyncio.sleep(1) # Fetch every second
 
     print("[Doorbell Loop] Stopped.", flush=True)
 
@@ -759,7 +868,7 @@ def _handle_doorbell(data: dict[str, Any], background_tasks: BackgroundTasks) ->
     # Enable Loop if not already running
     if not DOORBELL_ACTIVE:
         DOORBELL_ACTIVE = True
-        # background_tasks.add_task(doorbell_recognition_loop)
+        background_tasks.add_task(doorbell_recognition_loop)
     
     # Trigger one immediate fetch/process so the file is ready
     # fetch_and_process_doorbell_snapshot()
@@ -951,20 +1060,50 @@ def get_camera_frame_generator():
     """
     Generator that endlessly yields multipart frames for MJPEG streaming.
     Loops as fast as possible to keep stream live.
+    Updates LATEST_STREAM_FRAME for the background face detection loop.
+    Overlays detected faces from LATEST_DETECTED_FACES.
     """
+    global LATEST_STREAM_FRAME, LATEST_FRAME_TIMESTAMP
     boundary = "frame"
+    
+    # Pre-load font to avoid loading it every frame
+    try:
+        font = ImageFont.truetype(os.path.join(ASSETS_DIR, "fonts", "Inter-Regular.otf"), 40)
+    except:
+        font = ImageFont.load_default()
+
     while True:
         # Use specialized fetch that skips face recognition for speed
         img_processed = fetch_fast_snapshot()
         
         if img_processed:
             try:
-                # Rotate
-                # img_rotated = img_processed.rotate(180)
-                img_rotated = img_processed
+                # Update shared frame for the background loop
+                LATEST_STREAM_FRAME = img_processed
+                LATEST_FRAME_TIMESTAMP = time.time()
+                
+                # Clone for drawing overlays so we don't modify the reference held by LATEST_STREAM_FRAME
+                img_to_send = img_processed.copy()
+                
+                # Get latest faces safely
+                faces = []
+                with FACE_STATE_LOCK:
+                    faces = list(LATEST_DETECTED_FACES)
+                
+                # Draw overlays if faces exist
+                if faces:
+                    draw = ImageDraw.Draw(img_to_send)
+                    for (top, right, bottom, left), name in faces:
+                        draw.rectangle(((left, top), (right, bottom)), outline=(0, 255, 0), width=5)
+                        text_bbox = draw.textbbox((left, bottom), name, font=font)
+                        text_width = text_bbox[2] - text_bbox[0]
+                        text_height = text_bbox[3] - text_bbox[1]
+                        draw.rectangle(((left, bottom), (left + text_width + 10, bottom + text_height + 10)), fill=(0, 255, 0), outline=(0, 255, 0))
+                        draw.text((left + 5, bottom + 5), name, fill=(255, 255, 255, 255), font=font)
+
                 img_io = io.BytesIO()
                 # Reduce JPEG quality slightly for speed (85 vs 90)
-                img_rotated.save(img_io, 'JPEG', quality=85)
+                img_to_send.save(img_io, 'JPEG', quality=85)
                 frame_bytes = img_io.getvalue()
                 
                 # Yield frame in MJPEG format
