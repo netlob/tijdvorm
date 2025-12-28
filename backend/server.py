@@ -1095,11 +1095,50 @@ def get_camera_frame_generator():
                     draw = ImageDraw.Draw(img_to_send)
                     for (top, right, bottom, left), name in faces:
                         draw.rectangle(((left, top), (right, bottom)), outline=(0, 255, 0), width=5)
-                        text_bbox = draw.textbbox((left, bottom), name, font=font)
+                        
+                        # Prepare Text
+                        text_bbox = draw.textbbox((0, 0), name, font=font)
                         text_width = text_bbox[2] - text_bbox[0]
                         text_height = text_bbox[3] - text_bbox[1]
-                        draw.rectangle(((left, bottom), (left + text_width + 10, bottom + text_height + 10)), fill=(0, 255, 0), outline=(0, 255, 0))
-                        draw.text((left + 5, bottom + 5), name, fill=(255, 255, 255, 255), font=font)
+                        
+                        # Prepare Reference Image
+                        ref_img = KNOWN_FACE_IMAGES.get(name)
+                        ref_width = 0
+                        ref_height = 0
+                        if ref_img:
+                             ref_width, ref_height = ref_img.size
+
+                        # Total Box Size
+                        # Padding: 10px all around
+                        # Layout: [Image] [Text] if image exists
+                        padding = 10
+                        total_width = padding + (ref_width + padding if ref_img else 0) + text_width + padding
+                        total_height = padding + max(ref_height, text_height) + padding
+                        
+                        box_x = left
+                        box_y = bottom + 10 # 10px below the face box
+                        
+                        # Draw Background Box
+                        draw.rectangle(
+                            ((box_x, box_y), (box_x + total_width, box_y + total_height)), 
+                            fill=(0, 255, 0), 
+                            outline=(0, 255, 0)
+                        )
+                        
+                        # Draw Image
+                        if ref_img:
+                            # Paste image
+                            # Note: paste modifies the image in place, use mask if needed (but here simple paste is fine)
+                            img_to_send.paste(ref_img, (box_x + padding, box_y + padding))
+                            
+                            # Draw Text to the right of image
+                            text_x = box_x + padding + ref_width + padding
+                            # Center text vertically relative to box
+                            text_y = box_y + (total_height - text_height) // 2 - 5 # adjustment for baseline
+                            draw.text((text_x, text_y), name, fill=(255, 255, 255, 255), font=font)
+                        else:
+                            # Draw Text only
+                            draw.text((box_x + padding, box_y + padding), name, fill=(255, 255, 255, 255), font=font)
 
                 img_io = io.BytesIO()
                 # Reduce JPEG quality slightly for speed (85 vs 90)
