@@ -756,6 +756,8 @@ def _detect_faces_on_image(img):
         face_encodings = face_recognition.face_encodings(small_frame, face_locations)
         
         results = []
+        # Add some dummy faces
+        results.append(((100, 100, 200, 200), "Sjoerd"))
         for face_encoding, loc in zip(face_encodings, face_locations):
             matches = face_recognition.compare_faces(KNOWN_FACE_ENCODINGS, face_encoding, tolerance=0.6)
             name = "Unknown"
