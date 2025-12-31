@@ -1,7 +1,8 @@
 import os
 
 # --- Samsung TV Config ---
-TV_IP = "10.0.1.111" # !!! REPLACE WITH YOUR TV's IP ADDRESS !!!
+TV_IP = "10.0.1.111" # Primary IP
+TV_IPS = ["10.0.1.111", "10.0.3.111"] # List of IPs to try for failover
 UPDATE_INTERVAL_MINUTES = 1
 DELETE_OLD_ART = True # turn on to always delete all manually uploaded art
 

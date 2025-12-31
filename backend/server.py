@@ -1098,6 +1098,9 @@ def get_camera_frame_generator():
                 # Clone for drawing overlays so we don't modify the reference held by LATEST_STREAM_FRAME
                 img_to_send = img_processed.copy()
                 
+                # Rotate 180 (Restore rotation if camera/TV requires it)
+                img_to_send = img_to_send.rotate(180)
+                
                 # Get latest faces safely
                 faces = []
                 with FACE_STATE_LOCK:

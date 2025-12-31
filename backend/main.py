@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
-from backend.config import TV_IP, UPDATE_INTERVAL_MINUTES
+from backend.config import TV_IP, TV_IPS, UPDATE_INTERVAL_MINUTES
 from backend.integrations.samsung import is_tv_reachable, connect_to_tv, update_tv_art, select_tv_art, _delete_old_user_art
 from backend.integrations.home_assistant import get_sauna_status, is_doorbell_active
 from backend.features.easter_eggs import (
@@ -56,23 +56,30 @@ async def interruptible_sleep_async(interval_minutes, current_override_path):
     
     return False
 
-async def main_loop(tv_ip, interval_minutes):
+async def main_loop(tv_ips, interval_minutes):
     """Runs the image generation and TV update periodically."""
     logging.basicConfig(level=logging.INFO)
-    print(f"Starting main loop. TV IP: {tv_ip}, Update Interval: {interval_minutes} minutes.")
+    print(f"Starting main loop. TV IPs: {tv_ips}, Update Interval: {interval_minutes} minutes.")
     
-    # Check reachability before initial connection
-    # is_tv_reachable is still sync, which is fine, but we could wrap it if needed.
-    # Since it might block, ideally run in executor, but for now we keep it simple.
-    if not is_tv_reachable(tv_ip):
-         print(f"TV at {tv_ip} is initially unreachable. It will be checked in the loop.")
-         tv = False
-    else:
-        try:
-             tv = await connect_to_tv(tv_ip)
-        except Exception as e:
-            print(f"Initial connection failed: {e}")
-            tv = False
+    tv = False
+    current_ip = None
+
+    async def connect_any():
+        for ip in tv_ips:
+            if is_tv_reachable(ip):
+                print(f"TV at {ip} is reachable. Connecting...")
+                try:
+                    conn = await connect_to_tv(ip)
+                    print(f"Connected to TV at {ip}.")
+                    return conn, ip
+                except Exception as e:
+                    print(f"Failed to connect to {ip}: {e}")
+        return False, None
+
+    # Initial connection
+    tv, current_ip = await connect_any()
+    if not tv:
+         print("Initial connection failed. Will retry in loop.")
 
     iteration = 1
     while True:
@@ -83,29 +90,41 @@ async def main_loop(tv_ip, interval_minutes):
             await asyncio.sleep(5) # Check again in 5s
             continue
 
-        # Check if TV is reachable
-        if not is_tv_reachable(tv_ip):
-            print(f"\n===== TV at {tv_ip} is unreachable (Ping failed). =====")
-            print(f"Sleeping for 10 seconds before retrying...")
-            await asyncio.sleep(10)
-            continue
+        # Check reachability / Maintain connection
+        # If we have a current IP, check if it's still reachable
+        if current_ip and not is_tv_reachable(current_ip):
+            print(f"\n===== TV at {current_ip} is unreachable. Lost connection. =====")
+            tv = False 
 
+        # If disconnected or periodic reconnect
         if iteration % 10 == 0 or tv is False:
-            print("Reconnecting to TV...")
-            if tv:
+            if iteration % 10 == 0 and tv:
+                print(f"Periodic reconnection to {current_ip}...")
                 try:
                     await tv.close()
                 except:
                     pass
-            try:
-                tv = await connect_to_tv(tv_ip)
-            except Exception as e:
-                print(f"Connection failed even after successful ping: {e}")
-                tv = False
-                await asyncio.sleep(10)
-                continue
+                # Try reconnecting to same IP first
+                if is_tv_reachable(current_ip):
+                    try:
+                        tv = await connect_to_tv(current_ip)
+                    except Exception as e:
+                        print(f"Reconnect failed: {e}")
+                        tv = False
+                else:
+                    tv = False # Force scan
+            
+            if tv is False:
+                print("Scanning for TV connection...")
+                tv, new_ip = await connect_any()
+                if tv:
+                    current_ip = new_ip
+                else:
+                    print("Could not connect to any TV. Sleeping 10s...")
+                    await asyncio.sleep(10)
+                    continue
 
-        print(f"\n===== {time.strftime('%Y-%m-%d %H:%M:%S')} - Running Update Cycle {iteration} ====")
+        print(f"\n===== {time.strftime('%Y-%m-%d %H:%M:%S')} - Running Update Cycle {iteration} (IP: {current_ip}) ====")
         try:
             if tv is False:
                 print("Failed to connect to TV. Skipping update.")
@@ -213,4 +232,4 @@ if __name__ == "__main__":
        print("!!! Please edit the script and set TV_IP to your Samsung Frame TV's actual IP address.\n")
        # exit(1) # Optional: Uncomment to prevent running with placeholder
     # update_tv_art(TV_IP, '/Users/sjoerdbolten/Documents/Projects/tijdvorm/py/timeform_art.png')
-    asyncio.run(main_loop(TV_IP, UPDATE_INTERVAL_MINUTES))
+    asyncio.run(main_loop(TV_IPS, UPDATE_INTERVAL_MINUTES))
