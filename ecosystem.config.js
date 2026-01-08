@@ -5,6 +5,7 @@ module.exports = {
       script: "./venv/bin/uvicorn",
       args: "backend.server:app --host 0.0.0.0 --port 8000",
       interpreter: "none",
+      time: true,
       env: {
         PYTHONPATH: ".",
         BACKEND_HOST: "0.0.0.0",
@@ -16,6 +17,7 @@ module.exports = {
       script: "backend/main.py",
       interpreter: "./venv/bin/python",
       interpreter_args: "-u",
+      time: true,
       env: {
         PYTHONPATH: ".",
       },
@@ -26,6 +28,7 @@ module.exports = {
       script: "npm",
       args: "run dev",
       interpreter: "none",
+      time: true,
       env: {
         HOST: "0.0.0.0",
         PORT: "5173",
