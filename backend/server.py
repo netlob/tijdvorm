@@ -574,6 +574,46 @@ def set_settings(payload: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "easter_egg_chance_denominator": denom_i}
 
 
+@app.post("/api/pm2/{service}/{action}")
+async def pm2_control(service: str, action: str):
+    """
+    Control PM2 services.
+    service: tv, backend, frontend
+    action: start, stop, restart
+    """
+    valid_services = {
+        "tv": "tijdvorm-tv",
+        "backend": "tijdvorm-backend",
+        "frontend": "tijdvorm-frontend"
+    }
+    
+    if service not in valid_services:
+        raise HTTPException(status_code=400, detail="Invalid service")
+        
+    if action not in ["start", "stop", "restart"]:
+        raise HTTPException(status_code=400, detail="Invalid action")
+        
+    pm2_name = valid_services[service]
+    
+    cmd = ["pm2", action, pm2_name]
+    
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await proc.communicate()
+        
+        if proc.returncode != 0:
+            raise HTTPException(status_code=500, detail=f"PM2 Error: {stderr.decode()}")
+            
+        return {"ok": True, "service": service, "action": action, "output": stdout.decode()}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.websocket("/api/ws/logs/{service}")
 async def websocket_logs(websocket: WebSocket, service: str):
     await websocket.accept()

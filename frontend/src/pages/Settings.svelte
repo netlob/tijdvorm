@@ -12,6 +12,23 @@
   let logs = [];
   let socket;
   let logContainer;
+  let pm2Loading = null;
+
+  async function controlPm2(service, action) {
+    if (confirm(`Are you sure you want to ${action} ${service}?`)) {
+        pm2Loading = `${service}-${action}`;
+        try {
+            const res = await fetch(`/api/pm2/${service}/${action}`, { method: "POST" });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || "Failed");
+            alert(`Success: ${action} ${service}`);
+        } catch (e) {
+            alert(`Error: ${e.message}`);
+        } finally {
+            pm2Loading = null;
+        }
+    }
+  }
 
   function connectWs() {
       // Use relative path so it works through Vite proxy or in prod
@@ -118,6 +135,31 @@
       <div class={ui.cardDesc}>Real-time output from the background process.</div>
     </div>
     <div class={ui.cardContent}>
+      <div class="mb-4 flex flex-wrap gap-4">
+        {#each ["tv", "backend", "frontend"] as service}
+           <div class="flex items-center gap-2 border p-2 rounded bg-muted/20">
+             <span class="font-bold uppercase text-xs w-16">{service}</span>
+             <div class="flex gap-1">
+               <button 
+                 class="px-2 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700 disabled:opacity-50"
+                 on:click={() => controlPm2(service, "start")}
+                 disabled={!!pm2Loading}
+               >Start</button>
+               <button 
+                 class="px-2 py-1 bg-yellow-600 text-white text-xs rounded hover:bg-yellow-700 disabled:opacity-50"
+                 on:click={() => controlPm2(service, "restart")}
+                 disabled={!!pm2Loading}
+               >Restart</button>
+               <button 
+                 class="px-2 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 disabled:opacity-50"
+                 on:click={() => controlPm2(service, "stop")}
+                 disabled={!!pm2Loading}
+               >Stop</button>
+             </div>
+           </div>
+        {/each}
+      </div>
+
       <div 
         bind:this={logContainer}
         class="bg-black text-white p-4 rounded-md font-mono text-xs h-96 overflow-y-auto whitespace-pre-wrap leading-tight"
