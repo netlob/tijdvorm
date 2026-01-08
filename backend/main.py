@@ -139,17 +139,23 @@ async def main_loop(tv_ips, interval_minutes):
                 cached_id = get_cached_content_id(override_filename)
                 # Always generate a rotated preview image for the web UI
                 rotated_for_preview = prepare_rotated_image(override_path)
+                
+                success_using_cache = False
                 if cached_id:
                     print(f"Reusing cached TV content_id for override: {cached_id}")
-                    ok = await select_tv_art(tv, cached_id, preserve_ids=preserve)
-                    if ok and rotated_for_preview:
+                    success_using_cache = await select_tv_art(tv, cached_id, preserve_ids=preserve)
+                    if not success_using_cache:
+                        print(f"Failed to select cached art {cached_id}. Falling back to re-upload.")
+
+                if success_using_cache:
+                    if rotated_for_preview:
                         write_live_preview(rotated_for_preview, {"type": "override", "filename": override_filename})
                     iteration += 1
                     # Sleep until next cycle (interruptible)
                     await interruptible_sleep_async(interval_minutes, override_path)
                     continue
                 else:
-                    # First time: upload once and cache content_id
+                    # First time or cache failed: upload once and cache content_id
                     image_path = rotated_for_preview
                     live_meta = {"type": "override", "filename": override_filename}
             else:
@@ -175,10 +181,16 @@ async def main_loop(tv_ips, interval_minutes):
                      preserve = preserved_content_ids()
                      cached_id = get_cached_content_id(egg_filename)
                      rotated_for_preview = prepare_rotated_image(egg_path)
+                     
+                     success_using_cache = False
                      if cached_id:
                          print(f"Reusing cached TV content_id for easteregg: {cached_id}")
-                         ok = await select_tv_art(tv, cached_id, preserve_ids=preserve)
-                         if ok and rotated_for_preview:
+                         success_using_cache = await select_tv_art(tv, cached_id, preserve_ids=preserve)
+                         if not success_using_cache:
+                            print(f"Failed to select cached art {cached_id}. Falling back to re-upload.")
+
+                     if success_using_cache:
+                         if rotated_for_preview:
                              write_live_preview(rotated_for_preview, {"type": "easteregg", "filename": egg_filename})
                          iteration += 1
                          await interruptible_sleep_async(interval_minutes, override_path)
