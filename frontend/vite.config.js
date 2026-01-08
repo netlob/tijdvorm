@@ -12,7 +12,10 @@ export default defineConfig({
       "mini.netlob",
     ],
     proxy: {
-      "/api": "http://localhost:8000",
+      "/api": {
+        target: "http://localhost:8000",
+        ws: true,
+      },
       "/eastereggs": "http://localhost:8000",
     },
   },

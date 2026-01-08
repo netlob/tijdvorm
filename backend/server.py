@@ -27,7 +27,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional, Union
 from concurrent.futures import ThreadPoolExecutor
 
-from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Request, Response
+from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse, FileResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -572,6 +572,64 @@ def set_settings(payload: dict[str, Any]) -> dict[str, Any]:
     settings["easter_egg_chance_denominator"] = denom_i
     _save_settings(settings)
     return {"ok": True, "easter_egg_chance_denominator": denom_i}
+
+
+@app.websocket("/api/ws/logs/{service}")
+async def websocket_logs(websocket: WebSocket, service: str):
+    await websocket.accept()
+    
+    # Map service to log file
+    log_map = {
+        "tv": "tijdvorm-tv-out.log",
+        "backend": "tijdvorm-backend-out.log",
+        "frontend": "tijdvorm-frontend-out.log"
+    }
+    
+    filename = log_map.get(service)
+    if not filename:
+        await websocket.send_text("Invalid service name. Available: tv, backend, frontend")
+        await websocket.close()
+        return
+
+    # Try to locate the file in standard PM2 location
+    home = os.path.expanduser("~")
+    log_path = os.path.join(home, ".pm2", "logs", filename)
+    
+    if not os.path.exists(log_path):
+         # Try local fallback for dev?
+         await websocket.send_text(f"Log file not found at: {log_path}")
+         await websocket.close()
+         return
+
+    process = None
+    try:
+        # Use tail -f to stream logs
+        # -n 50 to get last 50 lines context
+        process = await asyncio.create_subprocess_exec(
+            "tail", "-n", "50", "-f", log_path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        
+        while True:
+            line = await process.stdout.readline()
+            if not line:
+                break
+            await websocket.send_text(line.decode("utf-8", errors="replace"))
+
+    except WebSocketDisconnect:
+        # Client disconnected
+        pass
+    except Exception as e:
+        print(f"WS Error streaming logs: {e}")
+    finally:
+        if process:
+            try:
+                process.terminate()
+                await process.wait()
+            except Exception:
+                pass
+
 
 
 # --- Face Recognition State ---
@@ -1338,4 +1396,3 @@ async def ha_webhook(payload: dict[str, Any], background_tasks: BackgroundTasks)
         return await _handle_doorbell_off()
     
     raise HTTPException(status_code=400, detail=f"Unknown action: {action}")
-

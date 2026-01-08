@@ -1,4 +1,5 @@
 <script>
+  import { onMount, onDestroy } from "svelte";
   import { cls, ui } from "../lib/ui.js";
 
   export let settings = { easter_egg_chance_denominator: 10 };
@@ -7,6 +8,54 @@
 
   export let onSave = async () => {};
   export let onRefresh = async () => {};
+
+  let logs = [];
+  let socket;
+  let logContainer;
+
+  function connectWs() {
+      // Use relative path so it works through Vite proxy or in prod
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const host = window.location.host;
+      const url = `${protocol}//${host}/api/ws/logs/tv`;
+      
+      console.log("Connecting to logs WS:", url);
+      socket = new WebSocket(url);
+      
+      socket.onmessage = (event) => {
+          logs = [...logs, event.data].slice(-500); // Keep last 500 lines
+          if (logContainer) {
+             // Auto-scroll if we were near bottom or just always? 
+             // Always for now.
+             setTimeout(() => {
+                 if(logContainer) logContainer.scrollTop = logContainer.scrollHeight;
+             }, 0);
+          }
+      };
+      
+      socket.onclose = () => {
+          console.log("WS closed, retrying in 3s...");
+          // Clear socket to prevent multiple listeners if we reconnect
+          socket = null;
+          setTimeout(connectWs, 3000);
+      };
+      
+      socket.onerror = (err) => {
+          console.error("WS error:", err);
+          if (socket) socket.close();
+      }
+  }
+
+  onMount(() => {
+    connectWs();
+  });
+
+  onDestroy(() => {
+    if (socket) {
+        socket.onclose = null; // Prevent retry
+        socket.close();
+    }
+  });
 </script>
 
 <div class="flex flex-col gap-4">
@@ -59,6 +108,23 @@
     <div class={ui.cardContent}>
       <div class="text-sm text-muted-foreground">
         Tip: if you already added it to your home screen, restarting Safari after updates helps it pick up new UI.
+      </div>
+    </div>
+  </section>
+
+  <section class={ui.card}>
+    <div class={ui.cardHeader}>
+      <div class={ui.cardTitle}>Live Logs (TV)</div>
+      <div class={ui.cardDesc}>Real-time output from the background process.</div>
+    </div>
+    <div class={ui.cardContent}>
+      <div 
+        bind:this={logContainer}
+        class="bg-black text-white p-4 rounded-md font-mono text-xs h-96 overflow-y-auto whitespace-pre-wrap leading-tight"
+      >
+        {#each logs as log}
+          <div>{log}</div>
+        {/each}
       </div>
     </div>
   </section>
