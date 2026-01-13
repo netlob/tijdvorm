@@ -614,6 +614,30 @@ async def pm2_control(service: str, action: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/system/git-pull")
+async def git_pull():
+    """Executes git pull in the project root."""
+    try:
+        # Assume project root is current working directory or parent of backend
+        root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+        
+        cmd = ["git", "pull"]
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=root_dir
+        )
+        stdout, stderr = await proc.communicate()
+        
+        if proc.returncode != 0:
+            raise HTTPException(status_code=500, detail=f"Git Pull Error: {stderr.decode()}")
+            
+        return {"ok": True, "output": stdout.decode()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.websocket("/api/ws/logs/{service}")
 async def websocket_logs(websocket: WebSocket, service: str):
     await websocket.accept()

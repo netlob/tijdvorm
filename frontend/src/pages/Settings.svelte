@@ -30,6 +30,22 @@
     }
   }
 
+  async function doGitPull() {
+    if (confirm(`Are you sure you want to run git pull?`)) {
+        pm2Loading = `git-pull`;
+        try {
+            const res = await fetch(`/api/system/git-pull`, { method: "POST" });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || "Failed");
+            alert(`Git Pull Output:\n${data.output}`);
+        } catch (e) {
+            alert(`Error: ${e.message}`);
+        } finally {
+            pm2Loading = null;
+        }
+    }
+  }
+
   function connectWs() {
       // Use relative path so it works through Vite proxy or in prod
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -158,6 +174,16 @@
              </div>
            </div>
         {/each}
+        <div class="flex items-center gap-2 border p-2 rounded bg-muted/20">
+             <span class="font-bold uppercase text-xs w-16">System</span>
+             <div class="flex gap-1">
+               <button 
+                 class="px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 disabled:opacity-50"
+                 on:click={doGitPull}
+                 disabled={!!pm2Loading}
+               >Git Pull</button>
+             </div>
+        </div>
       </div>
 
       <div 
