@@ -4,6 +4,7 @@
   import Home from "./pages/Home.svelte";
   import EggDetail from "./pages/EggDetail.svelte";
   import Settings from "./pages/Settings.svelte";
+  import Bastu from "./pages/Bastu.svelte";
   import {
     apiDeleteImage,
     apiGetLivePreview,
@@ -25,6 +26,7 @@
 
     if (clean === "/" || clean === "/home") return { name: "home" };
     if (clean === "/settings") return { name: "settings" };
+    if (clean === "/bastu") return { name: "bastu" };
 
     const eggPrefix = "/egg/";
     if (clean.startsWith(eggPrefix)) {
@@ -57,7 +59,7 @@
   let busy = false;
 
   $: current = $route;
-  $: activeTab = current?.name === "settings" ? "settings" : "home";
+  $: activeTab = current?.name === "settings" ? "settings" : current?.name === "bastu" ? "bastu" : "home";
   $: selected =
     current?.name === "egg" ? images.find((img) => img.filename === current.filename) ?? null : null;
 
@@ -190,6 +192,8 @@
   >
     {#if current?.name === "settings"}
       <Settings {settings} saving={savingSettings} {error} onSave={saveSettings} onRefresh={refresh} />
+    {:else if current?.name === "bastu"}
+      <Bastu {livePreview} onRefresh={refresh} />
     {:else if current?.name === "egg"}
       <EggDetail
         image={selected}

@@ -35,6 +35,20 @@
 
     <button
       type="button"
+      class={cls(itemBase, active === "bastu" ? activeCls : inactiveCls)}
+      on:click={() => goto("/bastu")}
+      aria-current={active === "bastu" ? "page" : undefined}
+    >
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" class="opacity-90">
+         <path stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M12 21v-8m0 8-3-3m3 3 3-3"/>
+         <path stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M8 5a4 4 0 0 1 8 0v8a4 4 0 0 1-8 0V5z"/>
+         <path stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M6 10a6 6 0 0 0 12 0"/>
+      </svg>
+      <span>Bastu</span>
+    </button>
+
+    <button
+      type="button"
       class={cls(itemBase, active === "settings" ? activeCls : inactiveCls)}
       on:click={() => goto("/settings")}
       aria-current={active === "settings" ? "page" : undefined}
