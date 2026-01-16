@@ -23,7 +23,9 @@ async def connect_to_tv(tv_ip):
     print(f"Connecting to TV at {tv_ip}...")
     try:
         tv = SamsungTVAsyncArt(host=tv_ip, port=8002, token_file=TOKEN_FILE)
+        print("Starting listening...")
         await tv.start_listening()
+        print("Listening successfully started!")
 
         # check if art mode is supported
         supported = await tv.supported()
