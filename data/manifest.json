@@ -102,7 +102,7 @@
       "enabled": true,
       "explicit": true,
       "priority": 5,
-      "tv_content_id": null,
+      "tv_content_id": "MY_F0001",
       "uploaded_at": null
     },
     "clock.png": {
