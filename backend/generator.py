@@ -150,6 +150,9 @@ async def generation_loop(frame_buffer: FrameBuffer):
     """Main loop — polls HA every second, generates frames when needed."""
     logger.info("Generation loop started")
 
+    # Push initial black frame so MJPEG clients don't hang waiting
+    await frame_buffer.push_frame(_black_frame())
+
     was_idle = False
     last_gen_time = 0.0
 

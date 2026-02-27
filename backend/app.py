@@ -81,3 +81,5 @@ logging.basicConfig(
     format="%(asctime)s %(name)s %(levelname)s %(message)s",
     datefmt="%H:%M:%S",
 )
+# Suppress noisy per-request httpx logs (2 requests/sec from HA polling)
+logging.getLogger("httpx").setLevel(logging.WARNING)
