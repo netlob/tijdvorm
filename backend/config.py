@@ -39,9 +39,8 @@ HA_TEMP_ENTITY = os.environ.get("HA_TEMP_ENTITY", "sensor.inieuw549_temperature"
 # --- Doorbell ---
 NVR_RTSP_URL = os.environ.get(
     "NVR_RTSP_URL",
-    "rtsp://api:peepeepoopoo@nvr.netlob:554/h264Preview_01_sub",
+    "rtsp://api:peepeepoopoo@nvr.netlob:554/h264Preview_01_main",
 )
-DOORBELL_FPS = int(os.environ.get("DOORBELL_FPS", "10"))
 
 # --- Timeform ---
 TIMEFORM_URL = os.environ.get("TIMEFORM_URL", "https://timeforms.app")

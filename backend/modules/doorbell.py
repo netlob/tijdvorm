@@ -3,23 +3,23 @@
 import asyncio
 import logging
 
-from backend.config import NVR_RTSP_URL, DOORBELL_FPS, OUTPUT_WIDTH, OUTPUT_HEIGHT
+from backend.config import NVR_RTSP_URL, OUTPUT_WIDTH, OUTPUT_HEIGHT
 
 logger = logging.getLogger("tijdvorm.doorbell")
 
-# Crop top 60px from NVR frame (camera timestamp bar), then scale to output size
-_VIDEO_FILTER = f"crop=in_w:in_h-60:0:60,scale={OUTPUT_WIDTH}:{OUTPUT_HEIGHT},fps={DOORBELL_FPS}"
+# Crop top 60px (camera timestamp bar), scale to portrait output.
+# No FPS filter — proxy at the stream's native frame rate.
+_VIDEO_FILTER = f"crop=in_w:in_h-60:0:60,scale={OUTPUT_WIDTH}:{OUTPUT_HEIGHT}"
 
 
 async def doorbell_loop(frame_buffer, stop_event: asyncio.Event):
     """Read RTSP stream via ffmpeg subprocess, push JPEG frames to FrameBuffer.
 
-    ffmpeg handles RTSP negotiation, H.264 decoding, cropping, scaling,
-    FPS limiting, and JPEG encoding — all in C, no Python image processing.
-
+    ffmpeg handles RTSP, H.264 decode, crop, scale, and JPEG encode.
+    Frames are passed through at native stream rate (typically 15-25 FPS).
     Reconnects automatically on stream failure.
     """
-    logger.info(f"Doorbell RTSP stream starting ({DOORBELL_FPS} FPS)")
+    logger.info("Doorbell RTSP stream starting (native FPS)")
 
     while not stop_event.is_set():
         process = None
@@ -60,7 +60,6 @@ async def doorbell_loop(frame_buffer, stop_event: asyncio.Event):
                         break
                     eoi = buf.find(b"\xff\xd9", soi + 2)
                     if eoi == -1:
-                        # Discard anything before SOI to keep buffer small
                         if soi > 0:
                             del buf[:soi]
                         break
