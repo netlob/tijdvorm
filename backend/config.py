@@ -37,9 +37,9 @@ HA_POWER_ENTITY = os.environ.get("HA_POWER_ENTITY", "sensor.power_consumed")
 HA_TEMP_ENTITY = os.environ.get("HA_TEMP_ENTITY", "sensor.inieuw549_temperature")
 
 # --- Doorbell ---
-NVR_SNAPSHOT_URL = os.environ.get(
-    "NVR_SNAPSHOT_URL",
-    "http://nvr.netlob/cgi-bin/api.cgi?cmd=Snap&channel=0&rs=wuuPhkmUCeI9WG7C&user=api&password=peepeepoopoo",
+NVR_RTSP_URL = os.environ.get(
+    "NVR_RTSP_URL",
+    "rtsp://api:peepeepoopoo@nvr.netlob:554/h264Preview_01_sub",
 )
 DOORBELL_FPS = int(os.environ.get("DOORBELL_FPS", "10"))
 

@@ -1,76 +1,83 @@
-"""Doorbell camera feed — fetches NVR snapshots and pushes to FrameBuffer."""
+"""Doorbell camera feed — reads RTSP stream via ffmpeg and pushes JPEG frames."""
 
 import asyncio
-import io
 import logging
-import time
 
-import httpx
-from PIL import Image
-
-from backend.config import NVR_SNAPSHOT_URL, DOORBELL_FPS, OUTPUT_WIDTH, OUTPUT_HEIGHT
+from backend.config import NVR_RTSP_URL, DOORBELL_FPS, OUTPUT_WIDTH, OUTPUT_HEIGHT
 
 logger = logging.getLogger("tijdvorm.doorbell")
 
-
-def _process_and_encode(raw_bytes: bytes) -> bytes | None:
-    """Crop, resize, and JPEG-encode an NVR snapshot. Runs in thread pool."""
-    try:
-        img = Image.open(io.BytesIO(raw_bytes))
-        w, h = img.size
-
-        # Crop top 60px (camera timestamp bar)
-        img = img.crop((0, 60, w, h))
-        w, h = img.size
-
-        # Resize so height = OUTPUT_HEIGHT (BILINEAR is much faster than LANCZOS)
-        ratio = OUTPUT_HEIGHT / h
-        new_width = int(w * ratio)
-        img = img.resize((new_width, OUTPUT_HEIGHT), Image.Resampling.BILINEAR)
-
-        # Crop to OUTPUT_WIDTH, aligned left
-        img = img.crop((0, 0, OUTPUT_WIDTH, OUTPUT_HEIGHT))
-
-        # Encode to JPEG
-        buf = io.BytesIO()
-        img.save(buf, format="JPEG", quality=75)
-        return buf.getvalue()
-    except Exception as e:
-        logger.warning(f"Snapshot processing failed: {e}")
-        return None
+# Crop top 60px from NVR frame (camera timestamp bar), then scale to output size
+_VIDEO_FILTER = f"crop=in_w:in_h-60:0:60,scale={OUTPUT_WIDTH}:{OUTPUT_HEIGHT},fps={DOORBELL_FPS}"
 
 
 async def doorbell_loop(frame_buffer, stop_event: asyncio.Event):
-    """Continuously fetch camera snapshots and push to the frame buffer.
+    """Read RTSP stream via ffmpeg subprocess, push JPEG frames to FrameBuffer.
 
-    Runs until stop_event is set.
+    ffmpeg handles RTSP negotiation, H.264 decoding, cropping, scaling,
+    FPS limiting, and JPEG encoding — all in C, no Python image processing.
+
+    Reconnects automatically on stream failure.
     """
-    interval = 1.0 / DOORBELL_FPS
-    logger.info(f"Doorbell stream started ({DOORBELL_FPS} FPS)")
+    logger.info(f"Doorbell RTSP stream starting ({DOORBELL_FPS} FPS)")
 
-    loop = asyncio.get_running_loop()
+    while not stop_event.is_set():
+        process = None
+        try:
+            cmd = [
+                "ffmpeg",
+                "-rtsp_transport", "tcp",
+                "-fflags", "nobuffer",
+                "-flags", "low_delay",
+                "-i", NVR_RTSP_URL,
+                "-vf", _VIDEO_FILTER,
+                "-f", "image2pipe",
+                "-vcodec", "mjpeg",
+                "-q:v", "5",
+                "-",
+            ]
 
-    async with httpx.AsyncClient(timeout=3.0) as client:
-        while not stop_event.is_set():
-            start = time.monotonic()
-            try:
-                resp = await client.get(NVR_SNAPSHOT_URL)
-                resp.raise_for_status()
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
 
-                # Offload CPU-bound image processing to thread pool
-                jpeg_bytes = await loop.run_in_executor(
-                    None, _process_and_encode, resp.content
-                )
-                if jpeg_bytes:
+            buf = bytearray()
+
+            while not stop_event.is_set():
+                chunk = await process.stdout.read(65536)
+                if not chunk:
+                    break
+
+                buf.extend(chunk)
+
+                # Extract complete JPEG frames (SOI=0xFFD8, EOI=0xFFD9)
+                while True:
+                    soi = buf.find(b"\xff\xd8")
+                    if soi == -1:
+                        buf.clear()
+                        break
+                    eoi = buf.find(b"\xff\xd9", soi + 2)
+                    if eoi == -1:
+                        # Discard anything before SOI to keep buffer small
+                        if soi > 0:
+                            del buf[:soi]
+                        break
+
+                    jpeg_bytes = bytes(buf[soi:eoi + 2])
+                    del buf[:eoi + 2]
                     await frame_buffer.push_frame(jpeg_bytes)
 
-            except Exception as e:
-                logger.warning(f"Doorbell frame error: {e}")
+        except Exception as e:
+            logger.error(f"RTSP stream error: {e}")
+        finally:
+            if process and process.returncode is None:
+                process.kill()
+                await process.wait()
 
-            # Sleep only the remaining time to hit target FPS
-            elapsed = time.monotonic() - start
-            remaining = interval - elapsed
-            if remaining > 0:
-                await asyncio.sleep(remaining)
+        if not stop_event.is_set():
+            logger.warning("RTSP stream disconnected, reconnecting in 2s...")
+            await asyncio.sleep(2.0)
 
     logger.info("Doorbell stream stopped")
