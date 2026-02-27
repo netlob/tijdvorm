@@ -102,18 +102,25 @@ class Display:
         for driver in drivers:
             os.environ["SDL_VIDEODRIVER"] = driver
             logger.info(f"Trying SDL video driver: {driver}")
-            pygame.display.init()
-            if pygame.display.get_init():
-                logger.info(f"Video initialized with driver: {driver}")
-                initialized = True
-                break
-            logger.warning(f"Driver {driver} failed, trying next...")
+            try:
+                pygame.display.quit()
+                pygame.display.init()
+                if pygame.display.get_init():
+                    logger.info(f"Video initialized with driver: {driver}")
+                    initialized = True
+                    break
+            except pygame.error as e:
+                logger.warning(f"Driver {driver} failed: {e}")
 
         if not initialized:
             # Last resort: let SDL pick
             if "SDL_VIDEODRIVER" in os.environ:
                 del os.environ["SDL_VIDEODRIVER"]
-            pygame.display.init()
+            try:
+                pygame.display.quit()
+                pygame.display.init()
+            except pygame.error as e:
+                raise RuntimeError(f"Could not initialize any SDL video driver: {e}")
             if not pygame.display.get_init():
                 raise RuntimeError("Could not initialize any SDL video driver")
             logger.info("Video initialized with SDL default driver")
