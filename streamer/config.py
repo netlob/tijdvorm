@@ -5,7 +5,7 @@ STREAM_URL = os.environ.get("STREAM_URL", "http://mini.netlob:8000/stream")
 
 # Display rotation in degrees (0, 90, 180, 270)
 # 180 = TV mounted upside-down in portrait
-ROTATION = int(os.environ.get("ROTATION", "180"))
+ROTATION = int(os.environ.get("ROTATION", "270"))
 
 # Reconnect settings
 RECONNECT_DELAY = float(os.environ.get("RECONNECT_DELAY", "2.0"))
