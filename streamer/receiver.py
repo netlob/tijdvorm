@@ -11,6 +11,7 @@ Usage:
 
 import io
 import logging
+import os
 import signal
 import sys
 import time
@@ -91,8 +92,33 @@ class Display:
         self.screen_height = 0
 
     def init(self):
-        pygame.init()
-        pygame.mouse.set_visible(False)
+        # Try video drivers in order of preference
+        drivers = os.environ.get("SDL_VIDEODRIVER", "").split(",") if os.environ.get("SDL_VIDEODRIVER") else []
+        drivers = [d.strip() for d in drivers if d.strip()]
+        if not drivers:
+            drivers = ["kmsdrm", "fbdev", "x11"]
+
+        initialized = False
+        for driver in drivers:
+            os.environ["SDL_VIDEODRIVER"] = driver
+            logger.info(f"Trying SDL video driver: {driver}")
+            pygame.display.init()
+            if pygame.display.get_init():
+                logger.info(f"Video initialized with driver: {driver}")
+                initialized = True
+                break
+            logger.warning(f"Driver {driver} failed, trying next...")
+
+        if not initialized:
+            # Last resort: let SDL pick
+            if "SDL_VIDEODRIVER" in os.environ:
+                del os.environ["SDL_VIDEODRIVER"]
+            pygame.display.init()
+            if not pygame.display.get_init():
+                raise RuntimeError("Could not initialize any SDL video driver")
+            logger.info("Video initialized with SDL default driver")
+
+        pygame.font.init()
 
         # Get display info and go fullscreen
         info = pygame.display.Info()
@@ -106,6 +132,7 @@ class Display:
             pygame.FULLSCREEN | pygame.NOFRAME,
         )
         pygame.display.set_caption("Tijdvorm")
+        pygame.mouse.set_visible(False)
         self.clear()
 
     def clear(self):

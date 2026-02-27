@@ -13,7 +13,6 @@ RestartSec=5
 # Environment defaults (override in /etc/default/tijdvorm-receiver)
 Environment=STREAM_URL=http://mini.netlob:8000/stream
 Environment=ROTATION=180
-Environment=SDL_VIDEODRIVER=kmsdrm
 EnvironmentFile=-/etc/default/tijdvorm-receiver
 
 # Allow access to DRM/KMS

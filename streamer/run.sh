@@ -7,12 +7,10 @@ if [ ! -d "venv" ]; then
     exit 1
 fi
 
-# Use KMS/DRM backend for SDL2 (no X server needed)
-# Falls back to fbdev or X11 if KMS isn't available
-export SDL_VIDEODRIVER="${SDL_VIDEODRIVER:-kmsdrm}"
+# Don't force a video driver — receiver.py tries kmsdrm, fbdev, x11 in order
+unset SDL_VIDEODRIVER 2>/dev/null
 
 echo "Starting Tijdvorm Stream Receiver..."
 echo "Stream URL: ${STREAM_URL:-http://mini.netlob:8000/stream}"
-echo "SDL driver: $SDL_VIDEODRIVER"
 
 exec ./venv/bin/python receiver.py
