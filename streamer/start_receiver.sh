@@ -6,18 +6,13 @@ xset -dpms
 xset s off
 xset s noblank
 
-# Wait for display to be ready
-sleep 1
-
-# Rotate display to portrait (right = 90° CW)
-# The Samsung Frame TV auto-rotates when mounted vertically,
-# so we DON'T use software rotation in the receiver (ROTATION=0).
-# Instead, xrandr rotates the X display so the Pi outputs portrait natively.
-xrandr --output HDMI-1 --rotate right 2>/dev/null || \
-xrandr --output HDMI-2 --rotate right 2>/dev/null || \
-echo "xrandr rotate failed — check output name with 'xrandr --query'"
-
 cd "$(dirname "$0")"
 export SDL_VIDEODRIVER=x11
-export ROTATION=0
+
+# The backend generates 1080x1920 (portrait) images.
+# The Pi outputs standard 1920x1080 HDMI (landscape).
+# ROTATION=270 rotates the portrait image 90° CW to fill the
+# 1920x1080 output. On the portrait-mounted Samsung Frame TV
+# (right side up), the viewer sees correct portrait orientation.
+export ROTATION=270
 exec ./venv/bin/python receiver.py
