@@ -7,33 +7,39 @@ from backend.config import NVR_RTSP_URL, OUTPUT_WIDTH, OUTPUT_HEIGHT
 
 logger = logging.getLogger("tijdvorm.doorbell")
 
-# Crop top 60px (camera timestamp bar), scale to portrait output.
-# No FPS filter — proxy at the stream's native frame rate.
+# Crop top 60px (camera timestamp bar), scale to portrait output
 _VIDEO_FILTER = f"crop=in_w:in_h-60:0:60,scale={OUTPUT_WIDTH}:{OUTPUT_HEIGHT}"
 
 
 async def doorbell_loop(frame_buffer, stop_event: asyncio.Event):
     """Read RTSP stream via ffmpeg subprocess, push JPEG frames to FrameBuffer.
 
-    ffmpeg handles RTSP, H.264 decode, crop, scale, and JPEG encode.
-    Frames are passed through at native stream rate (typically 15-25 FPS).
     Reconnects automatically on stream failure.
     """
-    logger.info("Doorbell RTSP stream starting (native FPS)")
+    logger.info("Doorbell RTSP stream starting")
 
     while not stop_event.is_set():
         process = None
         try:
             cmd = [
                 "ffmpeg",
+                # Input: low-latency RTSP
                 "-rtsp_transport", "tcp",
-                "-fflags", "nobuffer",
+                "-fflags", "nobuffer+discardcorrupt",
                 "-flags", "low_delay",
+                "-probesize", "32",
+                "-analyzeduration", "0",
+                "-max_delay", "0",
+                "-avioflags", "direct",
                 "-i", NVR_RTSP_URL,
+                # Processing: crop timestamp bar, scale to output
                 "-vf", _VIDEO_FILTER,
+                # Output: MJPEG frames to pipe, drop frames if behind
                 "-f", "image2pipe",
                 "-vcodec", "mjpeg",
                 "-q:v", "5",
+                "-fps_mode", "drop",
+                "-flush_packets", "1",
                 "-",
             ]
 
