@@ -1,0 +1,23 @@
+[Unit]
+Description=Tijdvorm Stream Receiver
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=sjoerd
+WorkingDirectory=/home/sjoerd/tijdvorm/streamer
+ExecStart=/home/sjoerd/tijdvorm/streamer/run.sh
+Restart=always
+RestartSec=5
+
+# Environment defaults (override in /etc/default/tijdvorm-receiver)
+Environment=STREAM_URL=http://mini.netlob:8000/stream
+Environment=ROTATION=180
+Environment=SDL_VIDEODRIVER=kmsdrm
+EnvironmentFile=-/etc/default/tijdvorm-receiver
+
+# Allow access to DRM/KMS
+SupplementaryGroups=video
+
+[Install]
+WantedBy=multi-user.target

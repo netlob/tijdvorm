@@ -1,13 +1,18 @@
 #!/bin/bash
-# Simple helper to run the streamer
+# Run the Tijdvorm stream receiver
 cd "$(dirname "$0")"
 
 if [ ! -d "venv" ]; then
-    echo "Creating venv..."
-    python3 -m venv venv
-    ./venv/bin/pip install -r requirements.txt
+    echo "No venv found. Run setup.sh first."
+    exit 1
 fi
 
-echo "Starting Tijdvorm Streamer on port 8008..."
-./venv/bin/uvicorn main:app --host 0.0.0.0 --port 8008
+# Use KMS/DRM backend for SDL2 (no X server needed)
+# Falls back to fbdev or X11 if KMS isn't available
+export SDL_VIDEODRIVER="${SDL_VIDEODRIVER:-kmsdrm}"
 
+echo "Starting Tijdvorm Stream Receiver..."
+echo "Stream URL: ${STREAM_URL:-http://mini.netlob:8000/stream}"
+echo "SDL driver: $SDL_VIDEODRIVER"
+
+exec ./venv/bin/python receiver.py
