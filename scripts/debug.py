@@ -21,12 +21,12 @@ tv = SamsungTVWS('10.0.1.111')
 print('connected to tv in', time.time() - start_time, 'seconds')
 
 # Is art mode supported?
-info = tv.art().supported()
-logging.info(info)
+# info = tv.art().supported()
+# logging.info(info)
 
 # List the art available on the device
-# info = tv.art().available()
-# logging.info(info)
+info = tv.art().available()
+logging.info(info)
 
 # # Retrieve information about the currently selected art
 # info = tv.art().get_current()
@@ -42,8 +42,8 @@ logging.info(info)
 # tv.art().select_image('SAM-S10002300', show=True)
 # sleep(5)
 # # Determine whether the TV is currently in art mode
-info = tv.art().get_artmode()
-logging.info(info)
+# info = tv.art().get_artmode()
+# logging.info(info)
 
 # Switch art mode on or off
 # tv.art().set_artmode(True)
@@ -58,12 +58,12 @@ logging.info(info)
 # print('uploaded art in', time.time() - start_time, 'seconds')
 
 # content_id = 'MY_F19168' # boef
-content_id = 'MY_F18998' # boef
-# content_id = 'MY_F19055' # clock
-start_time = time.time()
-print('setting art to', content_id)
-print(tv.art().select_image(content_id, show=True))
-print('set art to', content_id, 'took ', time.time() - start_time, 'seconds')
+# content_id = 'MY_F18998' # boef
+# # content_id = 'MY_F19055' # clock
+# start_time = time.time()
+# print('setting art to', content_id)
+# print(tv.art().select_image(content_id, show=True))
+# print('set art to', content_id, 'took ', time.time() - start_time, 'seconds')
 
 # # If uploading a JPEG
 # tv.art().upload(data, file_type='JPEG')
