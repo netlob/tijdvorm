@@ -14,6 +14,10 @@ _VIDEO_FILTER = f"crop=in_w:in_h-60:0:60,scale={OUTPUT_WIDTH}:{OUTPUT_HEIGHT}"
 async def doorbell_loop(frame_buffer, stop_event: asyncio.Event):
     """Read RTSP stream via ffmpeg subprocess, push JPEG frames to FrameBuffer.
 
+    Uses UDP transport to avoid the NVR dumping its entire TCP replay buffer
+    (~15-20s of old video) on connect. With UDP, old packets are simply lost
+    and we start from the live edge immediately.
+
     Reconnects automatically on stream failure.
     """
     logger.info("Doorbell RTSP stream starting")
@@ -23,23 +27,24 @@ async def doorbell_loop(frame_buffer, stop_event: asyncio.Event):
         try:
             cmd = [
                 "ffmpeg",
-                # Input: low-latency RTSP
-                "-rtsp_transport", "tcp",
+                # Input: UDP transport to skip NVR replay buffer
+                "-rtsp_transport", "udp",
                 "-fflags", "nobuffer+discardcorrupt",
                 "-flags", "low_delay",
                 "-probesize", "32",
                 "-analyzeduration", "0",
+                "-reorder_queue_size", "0",
                 "-max_delay", "0",
-                "-avioflags", "direct",
                 "-i", NVR_RTSP_URL,
                 # Processing: crop timestamp bar, scale to output
                 "-vf", _VIDEO_FILTER,
-                # Output: MJPEG frames to pipe, drop frames if behind
+                # Output: MJPEG frames to pipe
                 "-f", "image2pipe",
                 "-vcodec", "mjpeg",
                 "-q:v", "5",
                 "-fps_mode", "drop",
                 "-flush_packets", "1",
+                "-threads", "2",
                 "-",
             ]
 
