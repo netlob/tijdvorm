@@ -150,15 +150,22 @@ class Display:
 
     def show_loading(self, url: str, status: str = "Connecting"):
         """Render a loading screen with live timestamp and stream URL."""
-        self.screen.fill(BG_COLOR)
+        # Render into a logical-orientation surface, then rotate to match display
+        if self.rotation in (90, 270):
+            logical_w, logical_h = self.screen_height, self.screen_width
+        else:
+            logical_w, logical_h = self.screen_width, self.screen_height
 
-        cx = self.screen_width // 2
-        cy = self.screen_height // 2
+        canvas = pygame.Surface((logical_w, logical_h))
+        canvas.fill(BG_COLOR)
+
+        cx = logical_w // 2
+        cy = logical_h // 2
 
         now = datetime.now()
         t = time.monotonic()
 
-        scale = min(self.screen_width, self.screen_height) / 480
+        scale = min(logical_w, logical_h) / 480
         font_large = pygame.font.SysFont("monospace", max(14, int(28 * scale)))
         font_small = pygame.font.SysFont("monospace", max(10, int(16 * scale)))
 
@@ -166,22 +173,32 @@ class Display:
         pulse = (math.sin(t * 3) + 1) / 2  # 0..1
         dot_radius = int(6 * scale + 4 * scale * pulse)
         dot_color = (80 + int(120 * pulse), 80 + int(120 * pulse), 80 + int(120 * pulse))
-        pygame.draw.circle(self.screen, dot_color, (cx, cy - int(50 * scale)), dot_radius)
+        pygame.draw.circle(canvas, dot_color, (cx, cy - int(50 * scale)), dot_radius)
 
         # Status text
         dots = "." * (int(t * 2) % 4)
         status_surf = font_large.render(f"{status}{dots}", True, (200, 200, 200))
-        self.screen.blit(status_surf, (cx - status_surf.get_width() // 2, cy - int(20 * scale)))
+        canvas.blit(status_surf, (cx - status_surf.get_width() // 2, cy - int(20 * scale)))
 
         # URL
         url_surf = font_small.render(url, True, (120, 120, 120))
-        self.screen.blit(url_surf, (cx - url_surf.get_width() // 2, cy + int(15 * scale)))
+        canvas.blit(url_surf, (cx - url_surf.get_width() // 2, cy + int(15 * scale)))
 
         # Timestamp
         ts = now.strftime("%H:%M:%S")
         ts_surf = font_large.render(ts, True, (160, 160, 160))
-        self.screen.blit(ts_surf, (cx - ts_surf.get_width() // 2, cy + int(45 * scale)))
+        canvas.blit(ts_surf, (cx - ts_surf.get_width() // 2, cy + int(45 * scale)))
 
+        # Rotate to match physical display orientation
+        if self.rotation == 90:
+            canvas = pygame.transform.rotate(canvas, 90)
+        elif self.rotation == 180:
+            canvas = pygame.transform.rotate(canvas, 180)
+        elif self.rotation == 270:
+            canvas = pygame.transform.rotate(canvas, 270)
+
+        self.screen.fill(BG_COLOR)
+        self.screen.blit(canvas, (0, 0))
         pygame.display.flip()
 
     def show_frame(self, jpeg_bytes: bytes):
