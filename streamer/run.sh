@@ -8,7 +8,7 @@ if [ ! -d "venv" ]; then
 fi
 
 echo "Starting Tijdvorm Stream Receiver..."
-echo "Stream URL: ${STREAM_URL:-http://mini.netlob:8000/stream}"
+echo "Stream URL: ${STREAM_URL:-http://m4.netlob:8000/stream}"
 
 # If X is already running, use it directly
 if [ -n "$DISPLAY" ] || pgrep -x Xorg > /dev/null 2>&1; then

@@ -9,7 +9,7 @@ export default defineConfig({
       "127.0.0.1",
       "0.0.0.0",
       "10.0.1.158",
-      "mini.netlob",
+      "m4.netlob",
     ],
     proxy: {
       "/api": {

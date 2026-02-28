@@ -6,7 +6,7 @@ Connects to the backend's MJPEG stream and renders frames fullscreen
 using Pygame/SDL2 (can run without X server via KMS/DRM).
 
 Usage:
-    STREAM_URL=http://mini.netlob:8000/stream python receiver.py
+    STREAM_URL=http://m4.netlob:8000/stream python receiver.py
 """
 
 import io

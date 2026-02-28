@@ -11,7 +11,7 @@ Restart=always
 RestartSec=5
 
 # Environment defaults (override in /etc/default/tijdvorm-receiver)
-Environment=STREAM_URL=http://mini.netlob:8000/stream
+Environment=STREAM_URL=http://m4.netlob:8000/stream
 Environment=ROTATION=180
 EnvironmentFile=-/etc/default/tijdvorm-receiver
 
