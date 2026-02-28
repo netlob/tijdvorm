@@ -197,7 +197,8 @@ def _get_overlay():
 async def doorbell_loop(frame_buffer, stop_event: asyncio.Event):
     """Read RTSP stream via ffmpeg subprocess, compose overlay, push to FrameBuffer.
 
-    Uses UDP transport to avoid the NVR dumping its TCP replay buffer.
+    Uses TCP transport — required for Docker bridge networking (UDP RTSP
+    negotiates random data ports that can't pass through Docker NAT).
     Reconnects automatically on stream failure.
     """
     logger.info("Doorbell RTSP stream starting")
@@ -210,7 +211,7 @@ async def doorbell_loop(frame_buffer, stop_event: asyncio.Event):
         try:
             cmd = [
                 "ffmpeg",
-                "-rtsp_transport", "udp",
+                "-rtsp_transport", "tcp",
                 "-fflags", "nobuffer+discardcorrupt",
                 "-flags", "low_delay",
                 "-probesize", "32",
@@ -234,10 +235,14 @@ async def doorbell_loop(frame_buffer, stop_event: asyncio.Event):
                 stderr=asyncio.subprocess.PIPE,
             )
 
-            # Log ffmpeg stderr in background
+            # Log ffmpeg stderr in background (info level so errors are visible)
             async def _drain_stderr():
                 async for line in process.stderr:
-                    logger.debug(f"ffmpeg: {line.decode(errors='replace').rstrip()}")
+                    text = line.decode(errors="replace").rstrip()
+                    if any(kw in text.lower() for kw in ["error", "fail", "refused", "timeout"]):
+                        logger.warning(f"ffmpeg: {text}")
+                    else:
+                        logger.info(f"ffmpeg: {text}")
 
             stderr_task = asyncio.create_task(_drain_stderr())
 
