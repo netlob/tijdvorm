@@ -246,7 +246,7 @@ def run():
         if running:
             # Exponential backoff
             time.sleep(reconnect_delay)
-            reconnect_delay = min(reconnect_delay * 1.5, RECONNECT_MAX_DELAY)
+            # reconnect_delay = min(reconnect_delay * 1.5, RECONNECT_MAX_DELAY)
 
             # Keep processing events during reconnect
             if not display.process_events():
