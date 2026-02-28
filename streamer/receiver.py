@@ -136,7 +136,7 @@ class Display:
 
         self.screen = pygame.display.set_mode(
             (self.screen_width, self.screen_height),
-            pygame.FULLSCREEN | pygame.NOFRAME,
+            pygame.FULLSCREEN | pygame.DOUBLEBUF | pygame.NOFRAME,
         )
         pygame.display.set_caption("Tijdvorm")
         pygame.mouse.set_visible(False)
