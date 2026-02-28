@@ -1,7 +1,7 @@
 import os
 
 # Backend MJPEG stream URL
-STREAM_URL = os.environ.get("STREAM_URL", "http://mini.netlob:8000/stream")
+STREAM_URL = os.environ.get("STREAM_URL", "http://m4.netlob:8000/stream")
 
 # Display rotation in degrees (0, 90, 180, 270)
 # 180 = TV mounted upside-down in portrait
