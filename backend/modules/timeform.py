@@ -1,8 +1,14 @@
-"""Timeform art generation — screenshots timeforms.app and adds weather overlay."""
+"""Timeform art generation — screenshots timeforms.app and adds weather overlay.
+
+Two-phase rendering:
+  1. generate_base() — expensive (Playwright browser), called every minute
+  2. compose_frame() — cheap (PIL text draw), called every second for live clock
+"""
 
 import asyncio
 import logging
 import time
+from dataclasses import dataclass
 
 from PIL import Image, ImageDraw
 from playwright.async_api import async_playwright
@@ -19,6 +25,15 @@ from backend.integrations.weather import get_weather_data
 from backend.integrations.home_assistant import get_home_temperature
 
 logger = logging.getLogger("tijdvorm.timeform")
+
+
+@dataclass
+class TimeformBase:
+    """Cached result of the expensive browser render."""
+    image: Image.Image          # artwork without text overlay
+    text_data: dict             # {"temp": "12°C", "condition": "Lichte regen"}
+    fonts: dict                 # loaded PIL fonts
+    align_artwork_top: bool     # text goes opposite side of artwork
 
 
 async def _take_screenshot() -> bytes | None:
@@ -81,14 +96,19 @@ async def _take_screenshot() -> bytes | None:
             await browser.close()
 
 
-def _add_text_overlay(image: Image.Image, text_data: dict, fonts: dict, align_artwork_top: bool) -> Image.Image:
-    """Draw weather/time text onto the image."""
+def _draw_text_overlay(
+    image: Image.Image,
+    text_data: dict,
+    fonts: dict,
+    align_artwork_top: bool,
+    time_str: str,
+) -> Image.Image:
+    """Draw weather/time text onto a copy of the image."""
     image = image.convert("RGBA")
     draw = ImageDraw.Draw(image)
 
     temp_str = text_data.get("temp", "--°C")
     cond_str = text_data.get("condition", "Unknown")
-    time_str = time.strftime("%H:%M")
 
     font_temp = fonts.get("font_temp")
     font_cond = fonts.get("font_cond")
@@ -131,8 +151,23 @@ def _add_text_overlay(image: Image.Image, text_data: dict, fonts: dict, align_ar
     return image
 
 
-async def generate() -> Image.Image | None:
-    """Generate a timeform art image with weather overlay. Returns PIL Image."""
+def compose_frame(base: TimeformBase) -> Image.Image:
+    """Compose a display-ready frame from a cached base — cheap, called every second."""
+    time_str = time.strftime("%H:%M:%S")
+    return _draw_text_overlay(
+        base.image.copy(),
+        base.text_data,
+        base.fonts,
+        base.align_artwork_top,
+        time_str,
+    )
+
+
+async def generate_base() -> TimeformBase | None:
+    """Generate the expensive base: browser screenshot + weather data + fonts.
+
+    Returns a TimeformBase that can be passed to compose_frame() every second.
+    """
     # Fetch weather
     weather_data = await get_weather_data(WEATHER_URL)
     text_data = {"temp": "--°C", "condition": "Weather unavailable"}
@@ -167,5 +202,9 @@ async def generate() -> Image.Image | None:
         logger.error("Screenshot processing failed")
         return None
 
-    # Add text overlay
-    return _add_text_overlay(background_image, text_data, fonts, align_artwork_top)
+    return TimeformBase(
+        image=background_image,
+        text_data=text_data,
+        fonts=fonts,
+        align_artwork_top=align_artwork_top,
+    )

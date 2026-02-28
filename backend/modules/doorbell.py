@@ -51,10 +51,18 @@ async def doorbell_loop(frame_buffer, stop_event: asyncio.Event):
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
             )
 
+            # Log ffmpeg stderr in background so we can diagnose failures
+            async def _drain_stderr():
+                async for line in process.stderr:
+                    logger.debug(f"ffmpeg: {line.decode(errors='replace').rstrip()}")
+
+            stderr_task = asyncio.create_task(_drain_stderr())
+
             buf = bytearray()
+            frames_received = 0
 
             while not stop_event.is_set():
                 chunk = await process.stdout.read(65536)
@@ -77,7 +85,12 @@ async def doorbell_loop(frame_buffer, stop_event: asyncio.Event):
 
                     jpeg_bytes = bytes(buf[soi:eoi + 2])
                     del buf[:eoi + 2]
+                    frames_received += 1
+                    if frames_received == 1:
+                        logger.info("First doorbell frame received")
                     await frame_buffer.push_frame(jpeg_bytes)
+
+            logger.info(f"ffmpeg exited (code={process.returncode}), frames received: {frames_received}")
 
         except Exception as e:
             logger.error(f"RTSP stream error: {e}")
@@ -85,6 +98,7 @@ async def doorbell_loop(frame_buffer, stop_event: asyncio.Event):
             if process and process.returncode is None:
                 process.kill()
                 await process.wait()
+            stderr_task.cancel()
 
         if not stop_event.is_set():
             logger.warning("RTSP stream disconnected, reconnecting in 2s...")
