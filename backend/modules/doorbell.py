@@ -7,6 +7,7 @@ import asyncio
 import concurrent.futures
 import io
 import logging
+import time
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -25,12 +26,13 @@ logger = logging.getLogger("tijdvorm.doorbell")
 # Thread pool for CPU-bound PIL composition (keeps event loop responsive)
 _compose_pool = concurrent.futures.ThreadPoolExecutor(max_workers=2)
 
-# ffmpeg filter: crop watermark, scale to content width, limit FPS
-_VIDEO_FILTER = (
-    f"crop=in_w:in_h-60:0:60,"
-    f"scale={DOORBELL_CONTENT_WIDTH}:-2,"
-    f"fps={DOORBELL_FPS}"
-)
+# ffmpeg filter: crop watermark, scale to content width.
+# NO fps filter — it buffers frames by timestamp and adds 10-20s latency
+# on live RTSP streams.  Rate-limiting is done in Python instead.
+_VIDEO_FILTER = f"crop=in_w:in_h-60:0:60,scale={DOORBELL_CONTENT_WIDTH}:-2"
+
+# Minimum interval between pushed frames (Python-side rate limit)
+_FRAME_INTERVAL = 1.0 / DOORBELL_FPS  # 0.2s for 5 FPS
 
 
 # ── Font helper ───────────────────────────────────────────────────────────
@@ -197,8 +199,9 @@ def _get_overlay():
 async def doorbell_loop(frame_buffer, stop_event: asyncio.Event):
     """Read RTSP stream via ffmpeg subprocess, compose overlay, push to FrameBuffer.
 
-    Uses TCP transport — required for Docker bridge networking (UDP RTSP
-    negotiates random data ports that can't pass through Docker NAT).
+    Uses UDP transport for lowest latency — old buffered packets are simply
+    lost so we start from the live edge immediately.  Requires host networking
+    (network_mode: host) so UDP ports aren't blocked by Docker NAT.
     Reconnects automatically on stream failure.
     """
     logger.info("Doorbell RTSP stream starting")
@@ -211,7 +214,7 @@ async def doorbell_loop(frame_buffer, stop_event: asyncio.Event):
         try:
             cmd = [
                 "ffmpeg",
-                "-rtsp_transport", "tcp",
+                "-rtsp_transport", "udp",
                 "-fflags", "nobuffer+discardcorrupt",
                 "-flags", "low_delay",
                 "-probesize", "32",
@@ -248,6 +251,8 @@ async def doorbell_loop(frame_buffer, stop_event: asyncio.Event):
 
             buf = bytearray()
             frames_received = 0
+            frames_pushed = 0
+            last_push_at = 0.0
 
             while not stop_event.is_set():
                 chunk = await process.stdout.read(65536)
@@ -272,16 +277,27 @@ async def doorbell_loop(frame_buffer, stop_event: asyncio.Event):
                     del buf[:eoi + 2]
                     frames_received += 1
 
+                    # Python-side rate limit: skip frames to hit target FPS
+                    now = time.monotonic()
+                    if now - last_push_at < _FRAME_INTERVAL:
+                        continue  # drop frame, too soon
+                        # print(f"Dropping frame {frames_received} (interval {_FRAME_INTERVAL:.2f}s)")
+
                     # Compose overlay in thread pool
                     composed = await loop.run_in_executor(
                         _compose_pool, overlay.compose, raw_jpeg
                     )
                     await frame_buffer.push_frame(composed)
+                    last_push_at = time.monotonic()
+                    frames_pushed += 1
 
-                    if frames_received == 1:
+                    if frames_pushed == 1:
                         logger.info("First doorbell frame composed")
-                    elif frames_received % 100 == 0:
-                        logger.info(f"Doorbell: {frames_received} frames composed")
+                    elif frames_pushed % 100 == 0:
+                        logger.info(
+                            f"Doorbell: {frames_pushed} pushed "
+                            f"({frames_received} received from ffmpeg)"
+                        )
 
             logger.info(
                 f"ffmpeg exited (code={process.returncode}), frames: {frames_received}"

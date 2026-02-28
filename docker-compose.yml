@@ -3,8 +3,7 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    ports:
-      - "8000:8000"
+    network_mode: host
     volumes:
       - ./data:/app/data
     env_file: .env
@@ -15,6 +14,4 @@ services:
       context: ./frontend
     ports:
       - "5173:80"
-    depends_on:
-      - backend
     restart: unless-stopped

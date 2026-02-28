@@ -308,8 +308,9 @@ async def ffmpeg_reader(url, transport, raw):
                 "-i", url,
             ]
             if not raw:
-                # Crop watermark (top 60px), scale to content width, limit FPS
-                vf = f"crop=in_w:in_h-60:0:60,scale={CONTENT_WIDTH}:-2,fps={TARGET_FPS}"
+                # Crop watermark (top 60px), scale to content width
+                # NO fps filter — it buffers by timestamp, adds huge latency on live streams
+                vf = f"crop=in_w:in_h-60:0:60,scale={CONTENT_WIDTH}:-2"
                 cmd += ["-vf", vf]
             cmd += [
                 "-f", "image2pipe",
@@ -339,8 +340,11 @@ async def ffmpeg_reader(url, transport, raw):
 
             buf = bytearray()
             frames = 0
+            frames_pushed = 0
             t_start = time.monotonic()
             compose_ms_total = 0.0
+            last_push_at = 0.0
+            frame_interval = 1.0 / TARGET_FPS
 
             while True:
                 chunk = await process.stdout.read(65536)
@@ -364,6 +368,12 @@ async def ffmpeg_reader(url, transport, raw):
                     del buf[:eoi + 2]
                     frames += 1
 
+                    # Python-side rate limit
+                    now = time.monotonic()
+                    if now - last_push_at < frame_interval:
+                        print(f"Dropping frame {frames} (interval {frame_interval:.2f}s)")
+                        continue  # drop frame
+
                     # Compose overlay (offloaded to thread pool)
                     if _overlay and not raw:
                         loop = asyncio.get_event_loop()
@@ -375,6 +385,9 @@ async def ffmpeg_reader(url, transport, raw):
                         await _push_frame(composed)
                     else:
                         await _push_frame(raw_jpeg)
+
+                    last_push_at = time.monotonic()
+                    frames_pushed += 1
 
                     if frames == 1:
                         elapsed = time.monotonic() - t_start
