@@ -195,9 +195,84 @@ def _get_overlay():
 
 
 # ── RTSP reader loop ──────────────────────────────────────────────────────
+#
+# Architecture: two concurrent async tasks prevent pipe backpressure.
+#
+#   _pipe_reader  — drains ffmpeg stdout as fast as possible, always
+#                   overwrites `latest_raw` with the newest JPEG frame.
+#                   Never blocks on compose/push, so ffmpeg never stalls.
+#
+#   _compose_loop — wakes every 1/FPS seconds, grabs whatever is in
+#                   `latest_raw`, composites the overlay, and pushes to
+#                   the FrameBuffer.
+#
+# This prevents the growing-delay problem: ffmpeg outputs ~12 FPS but the
+# pipe reader keeps up because it does zero processing.  The compose loop
+# independently picks up the latest frame at 5 FPS.
+
+
+async def _pipe_reader(process, stop_event, state):
+    """Drain ffmpeg stdout as fast as possible — never block on processing."""
+    buf = bytearray()
+
+    while not stop_event.is_set():
+        chunk = await process.stdout.read(131072)
+        if not chunk:
+            break
+
+        buf.extend(chunk)
+
+        # Extract all complete JPEG frames, keep only the latest
+        while True:
+            soi = buf.find(b"\xff\xd8")
+            if soi == -1:
+                buf.clear()
+                break
+            eoi = buf.find(b"\xff\xd9", soi + 2)
+            if eoi == -1:
+                if soi > 0:
+                    del buf[:soi]
+                break
+
+            jpeg = bytes(buf[soi:eoi + 2])
+            del buf[:eoi + 2]
+            state["latest"] = jpeg
+            state["received"] += 1
+
+
+async def _compose_loop(overlay, frame_buffer, stop_event, state):
+    """Compose overlay at target FPS and push to FrameBuffer."""
+    loop = asyncio.get_event_loop()
+    last_raw = None
+    pushed = 0
+
+    while not stop_event.is_set():
+        t0 = time.monotonic()
+
+        raw = state["latest"]
+        if raw is not None and raw is not last_raw:
+            last_raw = raw
+            composed = await loop.run_in_executor(
+                _compose_pool, overlay.compose, raw
+            )
+            await frame_buffer.push_frame(composed)
+            pushed += 1
+
+            if pushed == 1:
+                logger.info("First doorbell frame composed")
+            elif pushed % 100 == 0:
+                logger.info(
+                    f"Doorbell: {pushed} pushed "
+                    f"({state['received']} received from ffmpeg)"
+                )
+
+        # Sleep remainder of frame interval
+        elapsed = time.monotonic() - t0
+        await asyncio.sleep(max(0.01, _FRAME_INTERVAL - elapsed))
+
 
 async def doorbell_loop(frame_buffer, stop_event: asyncio.Event):
-    """Read RTSP stream via ffmpeg subprocess, compose overlay, push to FrameBuffer.
+    """Read RTSP stream via ffmpeg, compose overlay, push to FrameBuffer.
 
     Uses UDP transport for lowest latency — old buffered packets are simply
     lost so we start from the live edge immediately.  Requires host networking
@@ -206,11 +281,12 @@ async def doorbell_loop(frame_buffer, stop_event: asyncio.Event):
     """
     logger.info("Doorbell RTSP stream starting")
     overlay = _get_overlay()
-    loop = asyncio.get_event_loop()
 
     while not stop_event.is_set():
         process = None
         stderr_task = None
+        reader_task = None
+        compose_task = None
         try:
             cmd = [
                 "ffmpeg",
@@ -238,7 +314,7 @@ async def doorbell_loop(frame_buffer, stop_event: asyncio.Event):
                 stderr=asyncio.subprocess.PIPE,
             )
 
-            # Log ffmpeg stderr in background (info level so errors are visible)
+            # Log ffmpeg stderr in background
             async def _drain_stderr():
                 async for line in process.stderr:
                     text = line.decode(errors="replace").rstrip()
@@ -247,60 +323,23 @@ async def doorbell_loop(frame_buffer, stop_event: asyncio.Event):
                     else:
                         logger.info(f"ffmpeg: {text}")
 
+            # Shared state between reader and composer (single-threaded, no lock needed)
+            state = {"latest": None, "received": 0}
+
             stderr_task = asyncio.create_task(_drain_stderr())
+            reader_task = asyncio.create_task(
+                _pipe_reader(process, stop_event, state)
+            )
+            compose_task = asyncio.create_task(
+                _compose_loop(overlay, frame_buffer, stop_event, state)
+            )
 
-            buf = bytearray()
-            frames_received = 0
-            frames_pushed = 0
-            last_push_at = 0.0
-
-            while not stop_event.is_set():
-                chunk = await process.stdout.read(65536)
-                if not chunk:
-                    break
-
-                buf.extend(chunk)
-
-                # Extract complete JPEG frames (SOI=0xFFD8, EOI=0xFFD9)
-                while True:
-                    soi = buf.find(b"\xff\xd8")
-                    if soi == -1:
-                        buf.clear()
-                        break
-                    eoi = buf.find(b"\xff\xd9", soi + 2)
-                    if eoi == -1:
-                        if soi > 0:
-                            del buf[:soi]
-                        break
-
-                    raw_jpeg = bytes(buf[soi:eoi + 2])
-                    del buf[:eoi + 2]
-                    frames_received += 1
-
-                    # Python-side rate limit: skip frames to hit target FPS
-                    now = time.monotonic()
-                    if now - last_push_at < _FRAME_INTERVAL:
-                        continue  # drop frame, too soon
-                        # print(f"Dropping frame {frames_received} (interval {_FRAME_INTERVAL:.2f}s)")
-
-                    # Compose overlay in thread pool
-                    composed = await loop.run_in_executor(
-                        _compose_pool, overlay.compose, raw_jpeg
-                    )
-                    await frame_buffer.push_frame(composed)
-                    last_push_at = time.monotonic()
-                    frames_pushed += 1
-
-                    if frames_pushed == 1:
-                        logger.info("First doorbell frame composed")
-                    elif frames_pushed % 100 == 0:
-                        logger.info(
-                            f"Doorbell: {frames_pushed} pushed "
-                            f"({frames_received} received from ffmpeg)"
-                        )
+            # Wait for pipe reader to finish (ffmpeg closed stdout)
+            await reader_task
 
             logger.info(
-                f"ffmpeg exited (code={process.returncode}), frames: {frames_received}"
+                f"ffmpeg exited (code={process.returncode}), "
+                f"frames received: {state['received']}"
             )
 
         except Exception as e:
@@ -309,8 +348,9 @@ async def doorbell_loop(frame_buffer, stop_event: asyncio.Event):
             if process and process.returncode is None:
                 process.kill()
                 await process.wait()
-            if stderr_task:
-                stderr_task.cancel()
+            for t in [stderr_task, reader_task, compose_task]:
+                if t and not t.done():
+                    t.cancel()
 
         if not stop_event.is_set():
             logger.warning("RTSP stream disconnected, reconnecting in 2s...")
