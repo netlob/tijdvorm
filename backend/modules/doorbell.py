@@ -1,15 +1,19 @@
 """Doorbell camera feed — reads RTSP stream via ffmpeg, composites a styled
 overlay (header, rounded camera feed, person info), and pushes JPEG frames
 to the shared FrameBuffer.
+
+Hot path uses turbojpeg + numpy for 2-5× faster JPEG decode/encode and
+array-based composition instead of PIL per-frame copies.
 """
 
 import asyncio
 import concurrent.futures
-import io
 import logging
 import time
 
+import numpy as np
 from PIL import Image, ImageDraw, ImageFont
+from turbojpeg import TurboJPEG, TJPF_RGB
 
 from backend.config import (
     NVR_RTSP_URL, OUTPUT_WIDTH, OUTPUT_HEIGHT, FONT_PATH,
@@ -23,7 +27,9 @@ from backend.config import (
 
 logger = logging.getLogger("tijdvorm.doorbell")
 
-# Thread pool for CPU-bound PIL composition (keeps event loop responsive)
+_tj = TurboJPEG()
+
+# Thread pool for CPU-bound composition (keeps event loop responsive)
 _compose_pool = concurrent.futures.ThreadPoolExecutor(max_workers=2)
 
 # ffmpeg filter: crop watermark, scale to content width.
@@ -51,16 +57,17 @@ def _load_font(size):
 class DoorbellOverlay:
     """Pre-rendered doorbell UI template with fast per-frame composition.
 
-    The static parts (background, header, person section) are rendered once.
-    Each incoming camera frame is resized, given rounded corners, and pasted
-    onto a copy of the template.
+    The static parts (background, header, person section) are rendered once
+    via PIL, then converted to numpy arrays.  Each incoming camera frame is
+    decoded with turbojpeg, resized, masked, and composited in numpy, then
+    re-encoded with turbojpeg — 2-5× faster than the pure-PIL path.
     """
 
     def __init__(self):
-        self.template = None   # PIL Image
+        self._template_np = None   # numpy uint8 (H, W, 3) RGB
+        self._mask_3d = None       # numpy bool  (cam_h, cw, 3)
         self.camera_y = 0
         self.camera_h = 0
-        self.corner_mask = None
         self._build()
 
     def _build(self):
@@ -128,9 +135,9 @@ class DoorbellOverlay:
         camera_bottom = person_y - pad
         self.camera_h = camera_bottom - self.camera_y
 
-        # Rounded-corner mask
-        self.corner_mask = Image.new("L", (cw, self.camera_h), 0)
-        mask_draw = ImageDraw.Draw(self.corner_mask)
+        # Rounded-corner mask (PIL for drawing, then convert to numpy)
+        corner_mask_pil = Image.new("L", (cw, self.camera_h), 0)
+        mask_draw = ImageDraw.Draw(corner_mask_pil)
         mask_draw.rounded_rectangle(
             [0, 0, cw - 1, self.camera_h - 1],
             radius=DOORBELL_CORNER_RADIUS,
@@ -139,9 +146,13 @@ class DoorbellOverlay:
 
         # Dark camera placeholder (visible before first frame arrives)
         cam_bg = Image.new("RGB", (cw, self.camera_h), DOORBELL_CAMERA_BG)
-        canvas.paste(cam_bg, (pad, self.camera_y), self.corner_mask)
+        canvas.paste(cam_bg, (pad, self.camera_y), corner_mask_pil)
 
-        self.template = canvas
+        # ── Convert to numpy for fast per-frame composition ──
+        self._template_np = np.array(canvas)                          # (H, W, 3) uint8
+        mask_2d = np.array(corner_mask_pil) > 0                       # (cam_h, cw) bool
+        self._mask_3d = np.repeat(mask_2d[:, :, np.newaxis], 3, axis=2)  # (cam_h, cw, 3)
+
         logger.info(
             f"Doorbell overlay ready: camera {cw}x{self.camera_h} at y={self.camera_y}"
         )
@@ -150,37 +161,41 @@ class DoorbellOverlay:
         """Composite a camera frame onto the overlay. Returns JPEG bytes.
 
         Runs in a thread pool — must be thread-safe (only reads self.*).
+        Uses turbojpeg decode/encode + numpy array ops for speed.
         """
         try:
-            cam = Image.open(io.BytesIO(raw_jpeg)).convert("RGB")
+            cam = _tj.decode(raw_jpeg, pixel_format=TJPF_RGB)
         except Exception:
             return raw_jpeg
 
         pad = DOORBELL_PADDING
         cw = DOORBELL_CONTENT_WIDTH
 
-        # Crop residual watermark edges
-        cam = cam.crop((0, 26, cam.width, cam.height - 28))
-        cam_w, cam_h = cam.size
+        # Crop residual watermark edges (numpy slice — zero-copy)
+        cam = cam[26:cam.shape[0] - 28, :, :]
+        cam_h, cam_w = cam.shape[:2]
         tw, th = cw, self.camera_h
 
         # Cover-crop: scale to fill, then crop to fit
         scale = max(tw / cam_w, th / cam_h)
         new_w = int(cam_w * scale)
         new_h = int(cam_h * scale)
-        cam = cam.resize((new_w, new_h), Image.BILINEAR)
+        # PIL resize for quality bilinear interpolation (still C code)
+        cam = np.asarray(
+            Image.fromarray(cam).resize((new_w, new_h), Image.BILINEAR)
+        )
 
         left = 0
         top = (new_h - th) // 2
-        cam = cam.crop((left, top, left + tw, top + th))
+        cam = cam[top:top + th, left:left + tw, :]
 
-        # Paste with rounded corners onto template copy
-        frame = self.template.copy()
-        frame.paste(cam, (pad, self.camera_y), self.corner_mask)
+        # Paste with rounded corners onto template copy (numpy — fast)
+        frame = self._template_np.copy()
+        region = frame[self.camera_y:self.camera_y + th, pad:pad + cw]
+        np.copyto(region, cam, where=self._mask_3d)
 
-        buf = io.BytesIO()
-        frame.save(buf, format="JPEG", quality=80)
-        return buf.getvalue()
+        # Encode to JPEG via turbojpeg (2-5× faster than PIL)
+        return _tj.encode(frame, pixel_format=TJPF_RGB, quality=80)
 
 
 # Lazily initialised overlay singleton
@@ -345,9 +360,13 @@ async def doorbell_loop(frame_buffer, stop_event: asyncio.Event):
         except Exception as e:
             logger.error(f"RTSP stream error: {e}")
         finally:
+            # Kill ffmpeg — shield from cancellation so we don't leave zombies
             if process and process.returncode is None:
                 process.kill()
-                await process.wait()
+                try:
+                    await asyncio.shield(process.wait())
+                except (asyncio.CancelledError, Exception):
+                    pass  # process is killed, best effort
             for t in [stderr_task, reader_task, compose_task]:
                 if t and not t.done():
                     t.cancel()

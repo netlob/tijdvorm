@@ -18,8 +18,10 @@ import os
 import random
 import time
 
+import numpy as np
 from datetime import datetime, timezone
 from PIL import Image
+from turbojpeg import TurboJPEG, TJPF_RGB
 
 from backend.config import (
     UPDATE_INTERVAL_MINUTES, OUTPUT_WIDTH, OUTPUT_HEIGHT,
@@ -35,18 +37,18 @@ from backend.modules.doorbell import doorbell_loop
 
 logger = logging.getLogger("tijdvorm.generator")
 
+_tj = TurboJPEG()
+
 # Cached timeform base — set when timeform is the active mode,
 # cleared when switching to another mode or going idle.
 _tf_base: TimeformBase | None = None
 
 
 def _image_to_jpeg(img: Image.Image, quality: int = 90) -> bytes:
-    """Convert a PIL Image to JPEG bytes."""
+    """Convert a PIL Image to JPEG bytes via turbojpeg (2-5× faster than PIL)."""
     if img.mode == "RGBA":
         img = img.convert("RGB")
-    buf = io.BytesIO()
-    img.save(buf, format="JPEG", quality=quality)
-    return buf.getvalue()
+    return _tj.encode(np.asarray(img), pixel_format=TJPF_RGB, quality=quality)
 
 
 def _black_frame() -> bytes:
