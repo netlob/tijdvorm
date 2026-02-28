@@ -11,10 +11,12 @@ Usage:
 
 import io
 import logging
+import math
 import os
 import signal
 import sys
 import time
+from datetime import datetime
 
 import pygame
 import requests
@@ -146,6 +148,42 @@ class Display:
         self.screen.fill(BG_COLOR)
         pygame.display.flip()
 
+    def show_loading(self, url: str, status: str = "Connecting"):
+        """Render a loading screen with live timestamp and stream URL."""
+        self.screen.fill(BG_COLOR)
+
+        cx = self.screen_width // 2
+        cy = self.screen_height // 2
+
+        now = datetime.now()
+        t = time.monotonic()
+
+        scale = min(self.screen_width, self.screen_height) / 480
+        font_large = pygame.font.SysFont("monospace", max(14, int(28 * scale)))
+        font_small = pygame.font.SysFont("monospace", max(10, int(16 * scale)))
+
+        # Pulsing dot as activity indicator
+        pulse = (math.sin(t * 3) + 1) / 2  # 0..1
+        dot_radius = int(6 * scale + 4 * scale * pulse)
+        dot_color = (80 + int(120 * pulse), 80 + int(120 * pulse), 80 + int(120 * pulse))
+        pygame.draw.circle(self.screen, dot_color, (cx, cy - int(50 * scale)), dot_radius)
+
+        # Status text
+        dots = "." * (int(t * 2) % 4)
+        status_surf = font_large.render(f"{status}{dots}", True, (200, 200, 200))
+        self.screen.blit(status_surf, (cx - status_surf.get_width() // 2, cy - int(20 * scale)))
+
+        # URL
+        url_surf = font_small.render(url, True, (120, 120, 120))
+        self.screen.blit(url_surf, (cx - url_surf.get_width() // 2, cy + int(15 * scale)))
+
+        # Timestamp
+        ts = now.strftime("%H:%M:%S")
+        ts_surf = font_large.render(ts, True, (160, 160, 160))
+        self.screen.blit(ts_surf, (cx - ts_surf.get_width() // 2, cy + int(45 * scale)))
+
+        pygame.display.flip()
+
     def show_frame(self, jpeg_bytes: bytes):
         """Decode JPEG, apply rotation, scale to fit screen, and display."""
         try:
@@ -217,10 +255,12 @@ def run():
     signal.signal(signal.SIGINT, handle_signal)
 
     reconnect_delay = RECONNECT_DELAY
+    status = "Connecting"
 
     while running:
         try:
             logger.info(f"Connecting to stream: {STREAM_URL}")
+            display.show_loading(STREAM_URL, "Connecting")
             receiver = MJPEGReceiver(STREAM_URL)
 
             for jpeg_bytes in receiver.frames():
@@ -238,19 +278,24 @@ def run():
 
         except requests.ConnectionError:
             logger.warning(f"Connection failed. Retrying in {reconnect_delay:.1f}s...")
+            status = "Connection failed"
         except requests.Timeout:
             logger.warning(f"Connection timed out. Retrying in {reconnect_delay:.1f}s...")
+            status = "Timed out"
         except Exception as e:
             logger.error(f"Stream error: {e}. Retrying in {reconnect_delay:.1f}s...")
+            status = "Stream error"
 
         if running:
-            # Exponential backoff
-            time.sleep(reconnect_delay)
+            # Animated wait with loading screen instead of plain sleep
+            wait_until = time.monotonic() + reconnect_delay
+            while time.monotonic() < wait_until and running:
+                display.show_loading(STREAM_URL, status)
+                if not display.process_events():
+                    running = False
+                    break
+                time.sleep(0.1)
             # reconnect_delay = min(reconnect_delay * 1.5, RECONNECT_MAX_DELAY)
-
-            # Keep processing events during reconnect
-            if not display.process_events():
-                break
 
     display.quit()
     logger.info("Receiver stopped.")
