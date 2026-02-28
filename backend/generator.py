@@ -181,6 +181,7 @@ async def generation_loop(frame_buffer: FrameBuffer):
 
     was_idle = False
     last_gen_time = 0.0
+    last_second = -1          # track wall-clock second to push each exactly once
 
     # Doorbell task management
     db_task: asyncio.Task | None = None
@@ -257,11 +258,21 @@ async def generation_loop(frame_buffer: FrameBuffer):
                 last_gen_time = time.time()
             elif _tf_base is not None:
                 # Timeform active: cheap re-composite with updated HH:MM:SS
-                img = timeform.compose_frame(_tf_base)
-                jpeg = _image_to_jpeg(img)
-                await frame_buffer.push_frame(jpeg)
+                # Only push when the second actually changes (dedup)
+                cur_second = int(time.time())
+                if cur_second != last_second:
+                    last_second = cur_second
+                    img = timeform.compose_frame(_tf_base)
+                    jpeg = _image_to_jpeg(img)
+                    await frame_buffer.push_frame(jpeg)
 
         except Exception as e:
             logger.error(f"Generation cycle error: {e}", exc_info=True)
 
-        await asyncio.sleep(1)
+        # ── Wall-clock aligned sleep ──────────────────────────────
+        # Sleep until 30ms past the next whole second so strftime
+        # always returns the new value.  This prevents drift and
+        # ensures each second is displayed exactly once.
+        now = time.time()
+        next_second = (now // 1) + 1.03
+        await asyncio.sleep(max(0.05, next_second - now))
