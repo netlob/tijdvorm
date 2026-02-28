@@ -213,26 +213,25 @@ async def generation_loop(frame_buffer: FrameBuffer):
             # ── TV active check ──────────────────────────────────
             tv_active = await is_tv_active()
 
-            if not tv_active:
-                if not was_idle:
-                    logger.info("TV inactive, entering idle mode")
-                    # Stop doorbell if running
+            if not tv_active and not was_idle:
+                logger.info("TV inactive, ticking in background")
+                # Stop doorbell if running
+                if prev_db_active:
                     await _stop_doorbell(db_task, db_stop)
                     db_task = db_stop = None
                     prev_db_active = False
-                    _tf_base = None
-                    await frame_buffer.push_frame(_black_frame())
-                    was_idle = True
-                await asyncio.sleep(1)
-                continue
+                was_idle = True
 
-            if was_idle:
-                logger.info("TV active again, resuming generation")
+            if tv_active and was_idle:
+                logger.info("TV active again, forcing regeneration")
                 was_idle = False
-                last_gen_time = 0  # Force immediate generation
+                last_gen_time = 0  # Force full priority chain on wake
 
-            # ── Doorbell check ───────────────────────────────────
-            db_active = await is_doorbell_active()
+            # ── Doorbell check (TV active only) ───────────────────
+            if tv_active:
+                db_active = await is_doorbell_active()
+            else:
+                db_active = False
 
             if db_active and not prev_db_active:
                 logger.info("Doorbell activated, starting camera feed")
@@ -249,11 +248,17 @@ async def generation_loop(frame_buffer: FrameBuffer):
                 await asyncio.sleep(1)
                 continue
 
-            # ── State change detection ───────────────────────────
-            override_path = easter_eggs.get_override_path()
-            sauna_status = await get_sauna_status()
-            sauna_on = bool(sauna_status and sauna_status.get("is_on"))
+            # ── State change detection (TV active only) ───────────
             dryer_min = await get_dryer_minutes_left()
+
+            if tv_active:
+                override_path = easter_eggs.get_override_path()
+                sauna_status = await get_sauna_status()
+                sauna_on = bool(sauna_status and sauna_status.get("is_on"))
+            else:
+                override_path = prev_override
+                sauna_status = None
+                sauna_on = prev_sauna_on
 
             force = False
             if override_path != prev_override:
@@ -269,13 +274,19 @@ async def generation_loop(frame_buffer: FrameBuffer):
             now = time.time()
             interval = UPDATE_INTERVAL_MINUTES * 60
 
-            if force or (now - last_gen_time >= interval):
-                # Full regeneration (expensive — browser screenshot)
+            if tv_active and (force or (now - last_gen_time >= interval)):
+                # Full regeneration with priority chain (override → egg → sauna → timeform)
                 await _generate_frame(frame_buffer, override_path, sauna_status, sauna_on)
                 last_gen_time = time.time()
+            elif _tf_base is None:
+                # No cached base yet (first run) — generate one even if TV is off
+                base = await timeform.generate_base()
+                if base:
+                    _tf_base = base
+                    last_gen_time = time.time()
+                    logger.info("Initial timeform base generated")
             elif _tf_base is not None:
-                # Timeform active: cheap re-composite with updated HH:MM:SS
-                # Only push when the second actually changes (dedup)
+                # Tick cached base — always runs (TV on or off) for instant wake
                 cur_second = int(time.time())
                 if cur_second != last_second:
                     last_second = cur_second
