@@ -20,16 +20,17 @@ import time
 
 import numpy as np
 from datetime import datetime, timezone
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 from turbojpeg import TurboJPEG, TJPF_RGB
 
 from backend.config import (
     UPDATE_INTERVAL_MINUTES, OUTPUT_WIDTH, OUTPUT_HEIGHT,
-    LIVE_PREVIEW_PATH, LIVE_STATE_PATH, LIVE_DIR,
+    LIVE_PREVIEW_PATH, LIVE_STATE_PATH, LIVE_DIR, FONT_PATH,
 )
 from backend.stream import FrameBuffer
 from backend.integrations.home_assistant import (
     is_tv_active, is_doorbell_active, get_sauna_status,
+    get_dryer_minutes_left,
 )
 from backend.modules import timeform, sauna, easter_eggs
 from backend.modules.timeform import TimeformBase
@@ -52,8 +53,21 @@ def _image_to_jpeg(img: Image.Image, quality: int = 90) -> bytes:
 
 
 def _black_frame() -> bytes:
-    """Generate a black 1080x1920 JPEG frame."""
+    """Generate a black 1080x1920 JPEG frame with 'First frame' text."""
     img = Image.new("RGB", (OUTPUT_WIDTH, OUTPUT_HEIGHT), (0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    try:
+        font = ImageFont.truetype(FONT_PATH, 48)
+    except (OSError, IOError):
+        font = ImageFont.load_default()
+    bbox = draw.textbbox((0, 0), "First frame", font=font)
+    text_w, text_h = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    draw.text(
+        ((OUTPUT_WIDTH - text_w) / 2, (OUTPUT_HEIGHT - text_h) / 2),
+        "First frame",
+        fill=(255, 255, 255),
+        font=font,
+    )
     return _image_to_jpeg(img)
 
 
@@ -239,6 +253,7 @@ async def generation_loop(frame_buffer: FrameBuffer):
             override_path = easter_eggs.get_override_path()
             sauna_status = await get_sauna_status()
             sauna_on = bool(sauna_status and sauna_status.get("is_on"))
+            dryer_min = await get_dryer_minutes_left()
 
             force = False
             if override_path != prev_override:
@@ -264,7 +279,7 @@ async def generation_loop(frame_buffer: FrameBuffer):
                 cur_second = int(time.time())
                 if cur_second != last_second:
                     last_second = cur_second
-                    img = timeform.compose_frame(_tf_base)
+                    img = timeform.compose_frame(_tf_base, dryer_minutes=dryer_min)
                     jpeg = _image_to_jpeg(img)
                     await frame_buffer.push_frame(jpeg)
 

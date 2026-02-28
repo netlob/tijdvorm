@@ -102,6 +102,7 @@ def _draw_text_overlay(
     fonts: dict,
     align_artwork_top: bool,
     time_str: str,
+    dryer_minutes: int | None = None,
 ) -> Image.Image:
     """Draw weather/time text onto a copy of the image."""
     image = image.convert("RGBA")
@@ -109,6 +110,7 @@ def _draw_text_overlay(
 
     temp_str = text_data.get("temp", "--°C")
     cond_str = text_data.get("condition", "Unknown")
+    dryer_str = f"Droger klaar over {dryer_minutes} min" if dryer_minutes is not None else None
 
     font_temp = fonts.get("font_temp")
     font_cond = fonts.get("font_cond")
@@ -118,6 +120,7 @@ def _draw_text_overlay(
     bbox_temp_h = TEMP_FONT_SIZE
     bbox_cond_h = COND_FONT_SIZE
     bbox_time_h = TIME_FONT_SIZE
+    bbox_dryer_h = 0
     try:
         if font_temp:
             bbox_temp_h = draw.textbbox((0, 0), temp_str, font=font_temp)[3] - draw.textbbox((0, 0), temp_str, font=font_temp)[1]
@@ -125,10 +128,14 @@ def _draw_text_overlay(
             bbox_cond_h = draw.textbbox((0, 0), cond_str, font=font_cond)[3] - draw.textbbox((0, 0), cond_str, font=font_cond)[1]
         if font_time:
             bbox_time_h = draw.textbbox((0, 0), time_str, font=font_time)[3] - draw.textbbox((0, 0), time_str, font=font_time)[1]
+        if dryer_str and font_cond:
+            bbox_dryer_h = draw.textbbox((0, 0), dryer_str, font=font_cond)[3] - draw.textbbox((0, 0), dryer_str, font=font_cond)[1]
     except Exception:
         pass
 
     text_block_height = bbox_temp_h + LINE_SPACING + bbox_cond_h + LINE_SPACING + bbox_time_h
+    if dryer_str:
+        text_block_height += LINE_SPACING + bbox_dryer_h
 
     text_padding_y = TEXT_PADDING * 1.5
     text_at_top = not align_artwork_top
@@ -145,13 +152,16 @@ def _draw_text_overlay(
             current_y += bbox_cond_h + LINE_SPACING
         if font_time:
             draw.text((text_padding_x, current_y), time_str, font=font_time, fill=TEXT_COLOR)
+            current_y += bbox_time_h + LINE_SPACING
+        if dryer_str and font_cond:
+            draw.text((text_padding_x, current_y), dryer_str, font=font_cond, fill=TEXT_COLOR)
     except Exception as e:
         logger.warning(f"Text drawing error: {e}")
 
     return image
 
 
-def compose_frame(base: TimeformBase) -> Image.Image:
+def compose_frame(base: TimeformBase, dryer_minutes: int | None = None) -> Image.Image:
     """Compose a display-ready frame from a cached base — cheap, called every second."""
     time_str = time.strftime("%H:%M:%S")
     return _draw_text_overlay(
@@ -160,6 +170,7 @@ def compose_frame(base: TimeformBase) -> Image.Image:
         base.fonts,
         base.align_artwork_top,
         time_str,
+        dryer_minutes=dryer_minutes,
     )
 
 

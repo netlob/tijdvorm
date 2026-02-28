@@ -5,10 +5,13 @@ import time
 
 import httpx
 
+from datetime import datetime, timezone
+
 from backend.config import (
     HA_BASE_URL, HA_TOKEN, HA_EXPLICIT_ENTITY, HA_TIMEOUT_SECONDS,
     HA_CACHE_TTL_SECONDS, HA_SAUNA_ENTITY, HA_POWER_ENTITY,
     HA_TEMP_ENTITY, HA_DOORBELL_ACTIVE_ENTITY, HA_TV_ENTITY,
+    HA_DRYER_ENTITY,
 )
 
 logger = logging.getLogger("tijdvorm.ha")
@@ -114,4 +117,27 @@ async def get_home_temperature() -> float | None:
     try:
         return float(data["state"])
     except (KeyError, ValueError, TypeError):
+        return None
+
+
+async def get_dryer_minutes_left() -> int | None:
+    """Returns minutes remaining on the dryer, or None if not running.
+
+    The HA entity holds an ISO 8601 completion timestamp.  If it's in the
+    future the dryer is still running and we return the minutes left.
+    """
+    data = await _get_state(HA_DRYER_ENTITY)
+    if data is None:
+        return None
+    state = data.get("state")
+    if not state or state in ("unavailable", "unknown"):
+        return None
+    try:
+        completion_dt = datetime.fromisoformat(state)
+        now_dt = datetime.now(timezone.utc)
+        minutes_left = (completion_dt - now_dt).total_seconds() / 60.0
+        if minutes_left > 0:
+            return int(minutes_left)
+        return None
+    except (ValueError, TypeError):
         return None
