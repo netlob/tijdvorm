@@ -240,7 +240,7 @@ def compose_frame(
     else:
         temp_line = f"{cur_val:.0f}°C"
     if sensor_humidity is not None:
-        temp_line += f"  {sensor_humidity:.0f}%"
+        temp_line += f" / {sensor_humidity:.0f}%"
 
     time_str = time.strftime("%H:%M:%S")
     outdoor_line = f"Buiten {base.weather_temp_str}"
@@ -258,7 +258,7 @@ def compose_frame(
     if prediction_msg:
         bottom_line = prediction_msg
     elif minutes_left is not None:
-        bottom_line = f"Over {minutes_left:.0f}min {set_temp:.0f}°C bastu ready"
+        bottom_line = f"Over {minutes_left:.0f}min een {set_temp:.0f}°C bastu ready"
     else:
         bottom_line = f"Cooking tot {set_temp:.0f}°C"
 
@@ -275,8 +275,8 @@ def compose_frame(
         # Top left: sauna sensor readings
         y = padding_y
         if font_title:
-            draw.text((padding_x, y), "Bastu", font=font_title, fill=TEXT_COLOR)
-            bbox = draw.textbbox((0, 0), "Bastu", font=font_title)
+            draw.text((padding_x, y), "Cooking tot", font=font_title, fill=TEXT_COLOR)
+            bbox = draw.textbbox((0, 0), "Cooking tot", font=font_title)
             y += (bbox[3] - bbox[1]) + spacing
 
         if font_big:
