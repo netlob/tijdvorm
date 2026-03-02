@@ -1,9 +1,15 @@
-"""Sauna status display — generates an image showing sauna temp, ETA, outdoor weather."""
+"""Sauna status display — generates an image showing sauna temp, ETA, outdoor weather.
+
+Uses a two-phase pattern (like timeform):
+  generate_base()  — expensive: load background, fonts, weather (cached)
+  compose_frame()  — cheap: draw dynamic text every second (temp, watts, time, prediction)
+"""
 
 import json
 import logging
 import os
 import time
+from dataclasses import dataclass
 
 from PIL import Image, ImageDraw
 
@@ -14,61 +20,114 @@ from backend.config import (
 )
 from backend.utils.image import load_fonts, load_font_with_fallback
 from backend.integrations.weather import get_weather_data
-from backend.integrations.home_assistant import get_home_temperature, get_power_usage
+from backend.integrations.home_assistant import get_home_temperature
 
 logger = logging.getLogger("tijdvorm.sauna")
 
 
-def _update_prediction(current_temp: float, set_temp: float) -> str | None:
-    """Update sauna heating log and return ETA prediction string."""
+# ── SaunaBase: cached expensive data ────────────────────────────────
+
+@dataclass
+class SaunaBase:
+    """Cached result of the expensive sauna frame setup."""
+    background: Image.Image          # Pre-loaded, pre-resized RGBA background
+    fonts: dict                      # font_title, font_big, font_sub, font_outdoor
+    weather_temp_str: str            # e.g. "4°C"
+    weather_desc: str                # e.g. "Lichte regen"
+
+
+# ── In-memory prediction state ──────────────────────────────────────
+
+_prediction_history: list[dict] = []
+_prediction_peak: float = 0.0
+_last_disk_write: float = 0.0
+_last_sample_time: float = 0.0
+_DISK_WRITE_INTERVAL = 30.0          # seconds between disk persists
+_SAMPLE_INTERVAL = 30.0              # seconds between history samples
+
+
+def init_prediction():
+    """Load persisted sauna_log.json into memory."""
+    global _prediction_history, _prediction_peak, _last_disk_write, _last_sample_time
+    try:
+        if os.path.exists(SAUNA_LOG_FILE):
+            with open(SAUNA_LOG_FILE, "r") as f:
+                log_data = json.load(f)
+            _prediction_peak = log_data.get("peak_temp", 0.0)
+            _prediction_history = log_data.get("history", [])
+            cutoff = time.time() - (3 * 3600)
+            _prediction_history = [h for h in _prediction_history if h["ts"] > cutoff]
+        else:
+            _prediction_history = []
+            _prediction_peak = 0.0
+    except Exception as e:
+        logger.warning(f"Could not load sauna log: {e}")
+        _prediction_history = []
+        _prediction_peak = 0.0
+    _last_disk_write = time.time()
+    _last_sample_time = 0.0
+
+
+def _persist_to_disk():
+    """Write current in-memory prediction state to sauna_log.json."""
+    try:
+        log_data = {"peak_temp": _prediction_peak, "history": _prediction_history}
+        with open(SAUNA_LOG_FILE, "w") as f:
+            json.dump(log_data, f)
+    except Exception as e:
+        logger.warning(f"Could not save sauna log: {e}")
+
+
+def flush_prediction():
+    """Persist final state to disk when sauna deactivates."""
+    _persist_to_disk()
+
+
+def update_prediction(current_temp: float, set_temp: float) -> str | None:
+    """Update in-memory history and return ETA prediction string.
+
+    Called every second from compose_frame.  Only samples a new data
+    point every _SAMPLE_INTERVAL seconds and persists to disk every
+    _DISK_WRITE_INTERVAL seconds.
+    """
+    global _prediction_history, _prediction_peak, _last_disk_write, _last_sample_time
+
     try:
         now = time.time()
-        log_data = {"peak_temp": 0.0, "history": []}
 
-        if os.path.exists(SAUNA_LOG_FILE):
-            try:
-                with open(SAUNA_LOG_FILE, "r") as f:
-                    log_data = json.load(f)
-            except Exception:
-                pass
+        # Reset if temp dropped significantly (sauna cooled down)
+        if _prediction_peak > 0 and current_temp < (0.5 * _prediction_peak):
+            _prediction_history = []
+            _prediction_peak = current_temp
 
-        peak = log_data.get("peak_temp", 0.0)
-        history = log_data.get("history", [])
+        if current_temp > _prediction_peak:
+            _prediction_peak = current_temp
 
-        # Reset if temp dropped significantly
-        if peak > 0 and current_temp < (0.5 * peak):
-            log_data = {"peak_temp": current_temp, "history": []}
-            peak = current_temp
-            history = []
+        # Sample every ~30s to keep history manageable
+        if now - _last_sample_time >= _SAMPLE_INTERVAL:
+            _prediction_history.append({"ts": now, "temp": current_temp})
+            _last_sample_time = now
+            # Trim to last 3 hours
+            cutoff = now - (3 * 3600)
+            _prediction_history = [h for h in _prediction_history if h["ts"] > cutoff]
 
-        if current_temp > peak:
-            log_data["peak_temp"] = current_temp
+        # Persist to disk periodically
+        if now - _last_disk_write >= _DISK_WRITE_INTERVAL:
+            _persist_to_disk()
+            _last_disk_write = now
 
-        history.append({"ts": now, "temp": current_temp})
-
-        # Keep last 3 hours
-        cutoff = now - (3 * 3600)
-        history = [h for h in history if h["ts"] > cutoff]
-        log_data["history"] = history
-
-        try:
-            with open(SAUNA_LOG_FILE, "w") as f:
-                json.dump(log_data, f)
-        except Exception as e:
-            logger.warning(f"Could not save sauna log: {e}")
-
-        # Prediction
-        if len(history) < 2:
+        # ── Compute prediction ──
+        if len(_prediction_history) < 2:
             return None
 
         if current_temp >= set_temp:
             return "BASTUUUUU COOKING TOOOT"
 
-        # Use last 15 minutes for rate
+        # Use last 15 minutes for rate (natural smoothing)
         window_start = now - (15 * 60)
-        recent = [h for h in history if h["ts"] >= window_start]
+        recent = [h for h in _prediction_history if h["ts"] >= window_start]
         if len(recent) < 2:
-            recent = history
+            recent = _prediction_history
         if len(recent) < 2:
             return None
 
@@ -94,11 +153,18 @@ def _update_prediction(current_temp: float, set_temp: float) -> str | None:
         return None
 
 
-async def generate(sauna_status: dict) -> Image.Image | None:
-    """Generate sauna status image. Returns PIL Image."""
-    logger.info("Generating sauna image...")
+# ── Base generation (expensive, cached) ─────────────────────────────
 
-    # Fetch weather
+async def generate_base(sauna_status: dict) -> SaunaBase | None:
+    """Generate the expensive base: load background, fetch weather, load fonts.
+
+    Called once when sauna activates, then again every UPDATE_INTERVAL_MINUTES.
+    """
+    logger.info("Generating sauna base...")
+
+    init_prediction()
+
+    # Fetch weather (slow network call — cached in base)
     weather_data = await get_weather_data(WEATHER_URL)
     temp_c_str = "--°C"
     weather_desc = ""
@@ -113,21 +179,22 @@ async def generate(sauna_status: dict) -> Image.Image | None:
     if ha_temp is not None:
         temp_c_str = f"{ha_temp:.0f}°C"
 
-    power_watts = await get_power_usage()
-    power_str = None
-    if power_watts is not None:
-        formatted = "{:,.0f}".format(power_watts).replace(",", ".")
-        power_str = f"{formatted}W"
-
     # Fonts
-    fonts = load_fonts(scale=1.2)
-    if not fonts.get("font_temp"):
+    fonts_raw = load_fonts(scale=1.2)
+    if not fonts_raw.get("font_temp"):
         logger.error("Essential fonts could not be loaded")
         return None
 
     font_outdoor = load_font_with_fallback(FONT_PATH, int(COND_FONT_SIZE * 0.9))
     if not font_outdoor:
-        font_outdoor = fonts.get("font_cond")
+        font_outdoor = fonts_raw.get("font_cond")
+
+    fonts = {
+        "font_title": fonts_raw.get("font_cond"),
+        "font_big": fonts_raw.get("font_temp"),
+        "font_sub": fonts_raw.get("font_cond"),
+        "font_outdoor": font_outdoor,
+    }
 
     # Background
     bg_path = os.path.abspath(SAUNA_BACKGROUND_PATH)
@@ -136,26 +203,49 @@ async def generate(sauna_status: dict) -> Image.Image | None:
         return None
 
     try:
-        img = Image.open(bg_path).convert("RGBA")
-        if img.size != (OUTPUT_WIDTH, OUTPUT_HEIGHT):
-            img = img.resize((OUTPUT_WIDTH, OUTPUT_HEIGHT), Image.Resampling.LANCZOS)
+        bg = Image.open(bg_path).convert("RGBA")
+        if bg.size != (OUTPUT_WIDTH, OUTPUT_HEIGHT):
+            bg = bg.resize((OUTPUT_WIDTH, OUTPUT_HEIGHT), Image.Resampling.LANCZOS)
     except Exception as e:
         logger.error(f"Background load error: {e}")
         return None
 
+    return SaunaBase(
+        background=bg,
+        fonts=fonts,
+        weather_temp_str=temp_c_str,
+        weather_desc=weather_desc,
+    )
+
+
+# ── Frame composition (cheap, every second) ─────────────────────────
+
+def compose_frame(
+    base: SaunaBase,
+    sauna_status: dict,
+    power_watts: float | None = None,
+) -> Image.Image:
+    """Compose a display-ready frame from cached base — called every second."""
+    img = base.background.copy()
     draw = ImageDraw.Draw(img)
 
-    # Text content
-    set_temp_str = f"{sauna_status.get('set_temp', 0):.0f}°C"
+    set_temp = float(sauna_status.get("set_temp", 0))
     cur_val = float(sauna_status.get("current_temp", 0))
-    combined_temp = f"{cur_val:.0f}°C / {set_temp_str}"
-    time_str = time.strftime("%H:%M")
-    outdoor_line = f"{temp_c_str}  {time_str}"
-    prediction = _update_prediction(cur_val, float(sauna_status.get("set_temp", 0)))
+    combined_temp = f"{cur_val:.0f}°C / {set_temp:.0f}°C"
+    time_str = time.strftime("%H:%M:%S")
+    outdoor_line = f"{base.weather_temp_str}  {time_str}"
 
-    font_title = fonts.get("font_cond")
-    font_big = fonts.get("font_temp")
-    font_sub = fonts.get("font_cond")
+    power_str = None
+    if power_watts is not None:
+        formatted = "{:,.0f}".format(power_watts).replace(",", ".")
+        power_str = f"{formatted}W"
+
+    prediction = update_prediction(cur_val, set_temp)
+
+    font_title = base.fonts.get("font_title")
+    font_big = base.fonts.get("font_big")
+    font_sub = base.fonts.get("font_sub")
+    font_outdoor = base.fonts.get("font_outdoor")
 
     padding_x = TEXT_PADDING
     padding_y = TEXT_PADDING * 1.5
@@ -191,9 +281,9 @@ async def generate(sauna_status: dict) -> Image.Image | None:
             bbox = draw.textbbox((0, 0), outdoor_line, font=font_outdoor)
             y_right += (bbox[3] - bbox[1]) + spacing
 
-            if weather_desc:
-                w = draw.textlength(weather_desc, font=font_outdoor)
-                draw.text((right_x - w, y_right), weather_desc, font=font_outdoor, fill=TEXT_COLOR)
+            if base.weather_desc:
+                w = draw.textlength(base.weather_desc, font=font_outdoor)
+                draw.text((right_x - w, y_right), base.weather_desc, font=font_outdoor, fill=TEXT_COLOR)
 
         # Bottom center: prediction
         if prediction and font_sub:
@@ -201,7 +291,6 @@ async def generate(sauna_status: dict) -> Image.Image | None:
             draw.text((OUTPUT_WIDTH // 2 - w / 2, 1800), prediction, font=font_sub, fill=TEXT_COLOR)
 
     except Exception as e:
-        logger.error(f"Drawing error: {e}")
-        return None
+        logger.error(f"Sauna compose drawing error: {e}")
 
     return img

@@ -30,10 +30,11 @@ from backend.config import (
 from backend.stream import FrameBuffer
 from backend.integrations.home_assistant import (
     is_tv_active, is_doorbell_active, get_sauna_status,
-    get_dryer_minutes_left,
+    get_dryer_minutes_left, get_power_usage,
 )
 from backend.modules import timeform, sauna, easter_eggs
 from backend.modules.timeform import TimeformBase
+from backend.modules.sauna import SaunaBase
 from backend.modules.doorbell import doorbell_loop
 
 logger = logging.getLogger("tijdvorm.generator")
@@ -43,6 +44,7 @@ _tj = TurboJPEG()
 # Cached timeform base — set when timeform is the active mode,
 # cleared when switching to another mode or going idle.
 _tf_base: TimeformBase | None = None
+_sauna_base: SaunaBase | None = None
 
 
 def _image_to_jpeg(img: Image.Image, quality: int = 90) -> bytes:
@@ -117,9 +119,10 @@ async def _generate_frame(
     """Run the priority chain and push a frame.
 
     When the timeform is selected, the expensive base is cached in _tf_base
-    so subsequent seconds can re-composite cheaply.
+    so subsequent seconds can re-composite cheaply.  Same for sauna with
+    _sauna_base.
     """
-    global _tf_base
+    global _tf_base, _sauna_base
 
     frame_jpeg = None
     meta = {"type": None, "filename": None}
@@ -127,6 +130,7 @@ async def _generate_frame(
     # 1. Override
     if override_path:
         _tf_base = None
+        _sauna_base = None
         try:
             img = Image.open(override_path)
             frame_jpeg = _image_to_jpeg(img)
@@ -149,23 +153,28 @@ async def _generate_frame(
 
         if roll:
             _tf_base = None
+            _sauna_base = None
             egg_img = await easter_eggs.get_random_egg()
             if egg_img:
                 frame_jpeg = _image_to_jpeg(egg_img)
                 meta = {"type": "easteregg", "filename": "easter_egg"}
                 logger.info("Easter egg selected")
 
-    # 3. Sauna
+    # 3. Sauna — cache the base for 1 FPS ticking
     if not frame_jpeg and sauna_on:
         _tf_base = None
-        img = await sauna.generate(sauna_status)
-        if img:
+        base = await sauna.generate_base(sauna_status)
+        if base:
+            _sauna_base = base
+            power_watts = await get_power_usage()
+            img = sauna.compose_frame(base, sauna_status, power_watts)
             frame_jpeg = _image_to_jpeg(img)
             meta = {"type": "sauna", "filename": "sauna"}
-            logger.info("Sauna image generated")
+            logger.info("Sauna base generated")
 
     # 4. Timeform (default) — cache the base for 1 FPS ticking
     if not frame_jpeg:
+        _sauna_base = None
         base = await timeform.generate_base()
         if base:
             _tf_base = base
@@ -185,10 +194,10 @@ async def _generate_frame(
 async def generation_loop(frame_buffer: FrameBuffer):
     """Main loop — polls HA every second, generates frames when needed.
 
-    When timeform is the active mode, re-composites the cached base with
-    the current HH:MM:SS every second (1 FPS live clock).
+    When timeform or sauna is the active mode, re-composites the cached
+    base with the current HH:MM:SS every second (1 FPS live clock).
     """
-    global _tf_base
+    global _tf_base, _sauna_base
 
     logger.info("Generation loop started")
 
@@ -267,6 +276,9 @@ async def generation_loop(frame_buffer: FrameBuffer):
             if sauna_on != prev_sauna_on:
                 logger.info(f"Sauna state changed: {'on' if sauna_on else 'off'}")
                 force = True
+                if not sauna_on and prev_sauna_on:
+                    sauna.flush_prediction()
+                    _sauna_base = None
             prev_override = override_path
             prev_sauna_on = sauna_on
 
@@ -278,15 +290,27 @@ async def generation_loop(frame_buffer: FrameBuffer):
                 # Full regeneration with priority chain (override → egg → sauna → timeform)
                 await _generate_frame(frame_buffer, override_path, sauna_status, sauna_on)
                 last_gen_time = time.time()
-            elif _tf_base is None:
+
+            elif _sauna_base is not None and sauna_on and sauna_status:
+                # Sauna tick — compose every second with fresh HA data
+                cur_second = int(time.time())
+                if cur_second != last_second:
+                    last_second = cur_second
+                    power_watts = await get_power_usage()
+                    img = sauna.compose_frame(_sauna_base, sauna_status, power_watts)
+                    jpeg = _image_to_jpeg(img)
+                    await frame_buffer.push_frame(jpeg)
+
+            elif _tf_base is None and _sauna_base is None:
                 # No cached base yet (first run) — generate one even if TV is off
                 base = await timeform.generate_base()
                 if base:
                     _tf_base = base
                     last_gen_time = time.time()
                     logger.info("Initial timeform base generated")
+
             elif _tf_base is not None:
-                # Tick cached base — always runs (TV on or off) for instant wake
+                # Tick cached timeform base — always runs (TV on or off) for instant wake
                 cur_second = int(time.time())
                 if cur_second != last_second:
                     last_second = cur_second
