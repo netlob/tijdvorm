@@ -233,7 +233,8 @@ def compose_frame(
     cur_val = float(sauna_status.get("current_temp", 0))
     combined_temp = f"{cur_val:.0f}°C / {set_temp:.0f}°C"
     time_str = time.strftime("%H:%M:%S")
-    outdoor_line = f"{base.weather_temp_str}  {time_str}"
+    outdoor_line = f"Buiten {base.weather_temp_str}"
+    time_line = time_str
 
     power_str = None
     if power_watts is not None:
@@ -271,14 +272,14 @@ def compose_frame(
         right_x = OUTPUT_WIDTH - TEXT_PADDING
         y_right = padding_y
         if font_outdoor:
-            w = draw.textlength("Buiten", font=font_outdoor)
-            draw.text((right_x - w, y_right), "Buiten", font=font_outdoor, fill=TEXT_COLOR)
-            bbox = draw.textbbox((0, 0), "Buiten", font=font_outdoor)
-            y_right += (bbox[3] - bbox[1]) + spacing
-
             w = draw.textlength(outdoor_line, font=font_outdoor)
             draw.text((right_x - w, y_right), outdoor_line, font=font_outdoor, fill=TEXT_COLOR)
             bbox = draw.textbbox((0, 0), outdoor_line, font=font_outdoor)
+            y_right += (bbox[3] - bbox[1]) + spacing
+
+            w = draw.textlength(time_line, font=font_outdoor)
+            draw.text((right_x - w, y_right), time_line, font=font_outdoor, fill=TEXT_COLOR)
+            bbox = draw.textbbox((0, 0), time_line, font=font_outdoor)
             y_right += (bbox[3] - bbox[1]) + spacing
 
             if base.weather_desc:
