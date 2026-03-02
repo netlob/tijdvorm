@@ -20,7 +20,7 @@ from backend.config import (
 )
 from backend.utils.image import load_fonts, load_font_with_fallback
 from backend.integrations.weather import get_weather_data
-from backend.integrations.home_assistant import get_home_temperature
+from backend.integrations.home_assistant import get_home_temperature, get_sauna_sensor_temp, get_sauna_humidity
 
 logger = logging.getLogger("tijdvorm.sauna")
 
@@ -83,8 +83,8 @@ def flush_prediction():
     _persist_to_disk()
 
 
-def update_prediction(current_temp: float, set_temp: float) -> str | None:
-    """Update in-memory history and return ETA prediction string.
+def update_prediction(current_temp: float, set_temp: float) -> tuple[str | None, float | None]:
+    """Update in-memory history and return (prediction_string, minutes_left).
 
     Called every second from compose_frame.  Only samples a new data
     point every _SAMPLE_INTERVAL seconds and persists to disk every
@@ -118,10 +118,10 @@ def update_prediction(current_temp: float, set_temp: float) -> str | None:
 
         # ── Compute prediction ──
         if len(_prediction_history) < 2:
-            return None
+            return None, None
 
         if current_temp >= set_temp:
-            return "BASTUUUUU COOKING TOOOT"
+            return "BASTUUUUU COOKING TOOOT", None
 
         # Use last 15 minutes for rate (natural smoothing)
         window_start = now - (15 * 60)
@@ -129,28 +129,28 @@ def update_prediction(current_temp: float, set_temp: float) -> str | None:
         if len(recent) < 2:
             recent = _prediction_history
         if len(recent) < 2:
-            return None
+            return None, None
 
         temp_diff = recent[-1]["temp"] - recent[0]["temp"]
         time_diff_min = (recent[-1]["ts"] - recent[0]["ts"]) / 60.0
 
         if time_diff_min <= 0 or temp_diff <= 0:
-            return None
+            return None, None
 
         rate = temp_diff / time_diff_min
         remaining = set_temp - current_temp
         if remaining <= 0:
-            return "BASTUUUUU COOKING TOOOT!"
+            return "BASTUUUUU COOKING TOOOT!", None
 
         minutes_left = remaining / rate
         if minutes_left > 120:
-            return "Bastu maakt geen progress"
+            return "Bastu maakt geen progress", None
 
-        return f"Bastu ready in ~{minutes_left:.0f} min"
+        return None, minutes_left
 
     except Exception as e:
         logger.warning(f"Prediction error: {e}")
-        return None
+        return None, None
 
 
 # ── Base generation (expensive, cached) ─────────────────────────────
@@ -224,6 +224,8 @@ def compose_frame(
     base: SaunaBase,
     sauna_status: dict,
     power_watts: float | None = None,
+    sensor_temp: float | None = None,
+    sensor_humidity: float | None = None,
 ) -> Image.Image:
     """Compose a display-ready frame from cached base — called every second."""
     img = base.background.copy()
@@ -231,7 +233,15 @@ def compose_frame(
 
     set_temp = float(sauna_status.get("set_temp", 0))
     cur_val = float(sauna_status.get("current_temp", 0))
-    combined_temp = f"{cur_val:.0f}°C / {set_temp:.0f}°C"
+
+    # Big text: sensor temperature + humidity (from dedicated sauna sensor)
+    if sensor_temp is not None:
+        temp_line = f"{sensor_temp:.0f}°C"
+    else:
+        temp_line = f"{cur_val:.0f}°C"
+    if sensor_humidity is not None:
+        temp_line += f"  {sensor_humidity:.0f}%"
+
     time_str = time.strftime("%H:%M:%S")
     outdoor_line = f"Buiten {base.weather_temp_str}"
     time_line = time_str
@@ -241,7 +251,16 @@ def compose_frame(
         formatted = "{:,.0f}".format(power_watts).replace(",", ".")
         power_str = f"{formatted}W"
 
-    prediction = update_prediction(cur_val, set_temp)
+    # Use climate component's current_temp for prediction (heating element sensor)
+    prediction_msg, minutes_left = update_prediction(cur_val, set_temp)
+
+    # Build bottom line: either a special message or "Over XXmin {set_temp}°C bastu ready"
+    if prediction_msg:
+        bottom_line = prediction_msg
+    elif minutes_left is not None:
+        bottom_line = f"Over {minutes_left:.0f}min {set_temp:.0f}°C bastu ready"
+    else:
+        bottom_line = f"Cooking tot {set_temp:.0f}°C"
 
     font_title = base.fonts.get("font_title")
     font_big = base.fonts.get("font_big")
@@ -253,16 +272,16 @@ def compose_frame(
     spacing = LINE_SPACING * 1.2
 
     try:
-        # Top left: sauna status
+        # Top left: sauna sensor readings
         y = padding_y
         if font_title:
-            draw.text((padding_x, y), "Cooking tot", font=font_title, fill=TEXT_COLOR)
-            bbox = draw.textbbox((0, 0), "Cooking tot", font=font_title)
+            draw.text((padding_x, y), "Bastu", font=font_title, fill=TEXT_COLOR)
+            bbox = draw.textbbox((0, 0), "Bastu", font=font_title)
             y += (bbox[3] - bbox[1]) + spacing
 
         if font_big:
-            draw.text((padding_x, y), combined_temp, font=font_big, fill=TEXT_COLOR)
-            bbox = draw.textbbox((0, 0), combined_temp, font=font_big)
+            draw.text((padding_x, y), temp_line, font=font_big, fill=TEXT_COLOR)
+            bbox = draw.textbbox((0, 0), temp_line, font=font_big)
             y += (bbox[3] - bbox[1]) + spacing
 
         if power_str and font_sub:
@@ -286,10 +305,10 @@ def compose_frame(
                 w = draw.textlength(base.weather_desc, font=font_outdoor)
                 draw.text((right_x - w, y_right), base.weather_desc, font=font_outdoor, fill=TEXT_COLOR)
 
-        # Bottom center: prediction
-        if prediction and font_sub:
-            w = draw.textlength(prediction, font=font_sub)
-            draw.text((OUTPUT_WIDTH // 2 - w / 2, 1800), prediction, font=font_sub, fill=TEXT_COLOR)
+        # Bottom center: prediction with set temp
+        if font_sub:
+            w = draw.textlength(bottom_line, font=font_sub)
+            draw.text((OUTPUT_WIDTH // 2 - w / 2, 1800), bottom_line, font=font_sub, fill=TEXT_COLOR)
 
     except Exception as e:
         logger.error(f"Sauna compose drawing error: {e}")

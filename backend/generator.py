@@ -31,6 +31,7 @@ from backend.stream import FrameBuffer
 from backend.integrations.home_assistant import (
     is_tv_active, is_doorbell_active, get_sauna_status,
     get_dryer_minutes_left, get_power_usage,
+    get_sauna_sensor_temp, get_sauna_humidity,
 )
 from backend.modules import timeform, sauna, easter_eggs
 from backend.modules.timeform import TimeformBase
@@ -139,8 +140,8 @@ async def _generate_frame(
         except Exception as e:
             logger.warning(f"Override load failed: {e}")
 
-    # 2. Easter egg roll
-    if not frame_jpeg:
+    # 2. Easter egg roll (skip when sauna is active)
+    if not frame_jpeg and not sauna_on:
         settings = easter_eggs.load_settings()
         denom = settings.get("easter_egg_chance_denominator", 10)
         roll = False
@@ -167,7 +168,9 @@ async def _generate_frame(
         if base:
             _sauna_base = base
             power_watts = await get_power_usage()
-            img = sauna.compose_frame(base, sauna_status, power_watts)
+            sensor_temp = await get_sauna_sensor_temp()
+            sensor_humidity = await get_sauna_humidity()
+            img = sauna.compose_frame(base, sauna_status, power_watts, sensor_temp, sensor_humidity)
             frame_jpeg = _image_to_jpeg(img)
             meta = {"type": "sauna", "filename": "sauna"}
             logger.info("Sauna base generated")
@@ -297,7 +300,9 @@ async def generation_loop(frame_buffer: FrameBuffer):
                 if cur_second != last_second:
                     last_second = cur_second
                     power_watts = await get_power_usage()
-                    img = sauna.compose_frame(_sauna_base, sauna_status, power_watts)
+                    sensor_temp = await get_sauna_sensor_temp()
+                    sensor_humidity = await get_sauna_humidity()
+                    img = sauna.compose_frame(_sauna_base, sauna_status, power_watts, sensor_temp, sensor_humidity)
                     jpeg = _image_to_jpeg(img)
                     await frame_buffer.push_frame(jpeg)
 

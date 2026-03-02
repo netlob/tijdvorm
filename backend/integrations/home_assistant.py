@@ -11,7 +11,7 @@ from backend.config import (
     HA_BASE_URL, HA_TOKEN, HA_EXPLICIT_ENTITY, HA_TIMEOUT_SECONDS,
     HA_CACHE_TTL_SECONDS, HA_SAUNA_ENTITY, HA_POWER_ENTITY,
     HA_TEMP_ENTITY, HA_DOORBELL_ACTIVE_ENTITY, HA_TV_ENTITY,
-    HA_DRYER_ENTITY,
+    HA_DRYER_ENTITY, HA_SAUNA_TEMP_ENTITY, HA_SAUNA_HUMIDITY_ENTITY,
 )
 
 logger = logging.getLogger("tijdvorm.ha")
@@ -112,6 +112,28 @@ async def get_power_usage() -> float | None:
 async def get_home_temperature() -> float | None:
     """Returns home temperature in Celsius."""
     data = await _get_state(HA_TEMP_ENTITY)
+    if data is None:
+        return None
+    try:
+        return float(data["state"])
+    except (KeyError, ValueError, TypeError):
+        return None
+
+
+async def get_sauna_sensor_temp() -> float | None:
+    """Returns sauna air temperature from dedicated sensor."""
+    data = await _get_state(HA_SAUNA_TEMP_ENTITY)
+    if data is None:
+        return None
+    try:
+        return float(data["state"])
+    except (KeyError, ValueError, TypeError):
+        return None
+
+
+async def get_sauna_humidity() -> float | None:
+    """Returns sauna air humidity percentage."""
+    data = await _get_state(HA_SAUNA_HUMIDITY_ENTITY)
     if data is None:
         return None
     try:

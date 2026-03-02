@@ -36,6 +36,8 @@ HA_SAUNA_ENTITY = os.environ.get("HA_SAUNA_ENTITY", "climate.sauna_control")
 HA_POWER_ENTITY = os.environ.get("HA_POWER_ENTITY", "sensor.power_consumed")
 HA_TEMP_ENTITY = os.environ.get("HA_TEMP_ENTITY", "sensor.inieuw549_temperature")
 HA_DRYER_ENTITY = os.environ.get("HA_DRYER_ENTITY", "sensor.dryer_completion_time")
+HA_SAUNA_TEMP_ENTITY = os.environ.get("HA_SAUNA_TEMP_ENTITY", "sensor.sauna_air_temperature")
+HA_SAUNA_HUMIDITY_ENTITY = os.environ.get("HA_SAUNA_HUMIDITY_ENTITY", "sensor.sauna_air_humidity")
 
 # --- Doorbell ---
 NVR_RTSP_URL = os.environ.get(
