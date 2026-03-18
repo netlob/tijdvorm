@@ -20,7 +20,7 @@ from backend.config import (
     TEMP_FONT_SIZE, COND_FONT_SIZE, TIME_FONT_SIZE, LINE_SPACING,
     TEXT_PADDING, TEXT_COLOR, WEATHER_URL,
 )
-from backend.utils.image import process_screenshot, load_fonts
+from backend.utils.image import process_screenshot, load_fonts, apply_night_shift
 from backend.integrations.weather import get_weather_data
 from backend.integrations.home_assistant import get_home_temperature
 
@@ -212,6 +212,9 @@ async def generate_base() -> TimeformBase | None:
     if not background_image:
         logger.error("Screenshot processing failed")
         return None
+
+    # Apply warm night-shift colour grading based on time of day
+    background_image = apply_night_shift(background_image)
 
     return TimeformBase(
         image=background_image,

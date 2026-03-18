@@ -97,6 +97,14 @@ CROP_BOTTOM_MARGIN = 192
 ZOOM_FACTOR = 1.15
 COLOR_TOLERANCE = 30
 
+# --- Night Shift ---
+# Gradually warms the image (less blue, more amber) between sunset and sunrise.
+NIGHT_SHIFT_START_HOUR = 20    # ramp begins (fully off before this)
+NIGHT_SHIFT_FULL_HOUR = 22     # full strength from here through the night
+NIGHT_SHIFT_END_HOUR = 7       # ramp ends (fully off after this)
+NIGHT_SHIFT_FADE_HOUR = 5      # ramp-off begins in the morning
+NIGHT_SHIFT_STRENGTH = 0.45    # 0.0 = off, 1.0 = maximum warmth
+
 # --- CSS Injection (Timeform) ---
 HIDE_CSS = """
   .fixed.top-8.left-8.text-2xl,

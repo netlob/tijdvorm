@@ -1,10 +1,14 @@
 import io
 import os
+from datetime import datetime
 from PIL import Image, ImageDraw, ImageFont
 from backend.config import (
     FONT_PATH, TEMP_FONT_SIZE, COND_FONT_SIZE, TIME_FONT_SIZE,
     CROP_LEFT, CROP_TOP, CROP_RIGHT_MARGIN, CROP_BOTTOM_MARGIN,
-    ZOOM_FACTOR, OUTPUT_WIDTH, OUTPUT_HEIGHT, COLOR_TOLERANCE
+    ZOOM_FACTOR, OUTPUT_WIDTH, OUTPUT_HEIGHT, COLOR_TOLERANCE,
+    NIGHT_SHIFT_START_HOUR, NIGHT_SHIFT_FULL_HOUR,
+    NIGHT_SHIFT_END_HOUR, NIGHT_SHIFT_FADE_HOUR,
+    NIGHT_SHIFT_STRENGTH,
 )
 
 def color_diff(color1, color2):
@@ -43,6 +47,42 @@ def load_fonts(scale=1.0):
         'font_time': load_font_with_fallback(FONT_PATH, int(TIME_FONT_SIZE * scale))
     }
     return fonts
+
+def _night_shift_intensity() -> float:
+    """Return 0.0–1.0 indicating how strong the night shift should be right now."""
+    hour = datetime.now().hour + datetime.now().minute / 60.0
+
+    if NIGHT_SHIFT_FULL_HOUR <= hour or hour < NIGHT_SHIFT_FADE_HOUR:
+        # Deep night — full strength
+        return 1.0
+    elif NIGHT_SHIFT_START_HOUR <= hour < NIGHT_SHIFT_FULL_HOUR:
+        # Evening ramp-up
+        return (hour - NIGHT_SHIFT_START_HOUR) / (NIGHT_SHIFT_FULL_HOUR - NIGHT_SHIFT_START_HOUR)
+    elif NIGHT_SHIFT_FADE_HOUR <= hour < NIGHT_SHIFT_END_HOUR:
+        # Morning ramp-down
+        return 1.0 - (hour - NIGHT_SHIFT_FADE_HOUR) / (NIGHT_SHIFT_END_HOUR - NIGHT_SHIFT_FADE_HOUR)
+    else:
+        return 0.0
+
+
+def apply_night_shift(image: Image.Image) -> Image.Image:
+    """Apply a warm color shift (reduce blue, boost red/green slightly) like Apple Night Shift."""
+    intensity = _night_shift_intensity() * NIGHT_SHIFT_STRENGTH
+    if intensity <= 0:
+        return image
+
+    r, g, b = image.split()[:3]
+    extra_channels = image.split()[3:] if image.mode == "RGBA" else []
+
+    # Warm shift: boost red slightly, keep green, reduce blue
+    r = r.point(lambda v: min(255, int(v + 20 * intensity)))
+    g = g.point(lambda v: min(255, int(v + 8 * intensity)))
+    b = b.point(lambda v: max(0, int(v - 40 * intensity)))
+
+    if extra_channels:
+        return Image.merge("RGBA", (r, g, b, *extra_channels))
+    return Image.merge("RGB", (r, g, b))
+
 
 def process_screenshot(screenshot_bytes):
     """Crop, get colors, zoom, create canvas, align, and paste."""
