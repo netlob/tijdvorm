@@ -7,6 +7,8 @@ services:
     volumes:
       - ./data:/app/data
     env_file: .env
+    environment:
+      - TZ=Europe/Amsterdam
     restart: unless-stopped
 
   frontend:
