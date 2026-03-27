@@ -11,7 +11,8 @@ from backend.config import (
     HA_BASE_URL, HA_TOKEN, HA_EXPLICIT_ENTITY, HA_TIMEOUT_SECONDS,
     HA_CACHE_TTL_SECONDS, HA_SAUNA_ENTITY, HA_POWER_ENTITY,
     HA_TEMP_ENTITY, HA_DOORBELL_ACTIVE_ENTITY, HA_TV_ENTITY,
-    HA_DRYER_ENTITY, HA_SAUNA_TEMP_ENTITY, HA_SAUNA_HUMIDITY_ENTITY,
+    HA_DRYER_ENTITY, HA_DRYER_JOB_STATE_ENTITY,
+    HA_SAUNA_TEMP_ENTITY, HA_SAUNA_HUMIDITY_ENTITY,
 )
 
 logger = logging.getLogger("tijdvorm.ha")
@@ -142,24 +143,32 @@ async def get_sauna_humidity() -> float | None:
         return None
 
 
-async def get_dryer_minutes_left() -> int | None:
-    """Returns minutes remaining on the dryer, or None if not running.
+async def get_dryer_status() -> dict | None:
+    """Returns {"job_state": str, "minutes_left": int | None} or None.
 
-    The HA entity holds an ISO 8601 completion timestamp.  If it's in the
-    future the dryer is still running and we return the minutes left.
+    Uses the dryer job state entity as the primary check — if the dryer
+    job state is "none" or unavailable the dryer is considered off.
+    The completion-time entity is only consulted for the ETA when the
+    dryer is actually running.
     """
-    data = await _get_state(HA_DRYER_ENTITY)
-    if data is None:
+    job_data = await _get_state(HA_DRYER_JOB_STATE_ENTITY)
+    if job_data is None:
         return None
-    state = data.get("state")
-    if not state or state in ("unavailable", "unknown"):
+    job_state = str(job_data.get("state", "")).lower().strip()
+    if not job_state or job_state in ("unavailable", "unknown", "none"):
         return None
-    try:
-        completion_dt = datetime.fromisoformat(state)
-        now_dt = datetime.now(timezone.utc)
-        minutes_left = (completion_dt - now_dt).total_seconds() / 60.0
-        if minutes_left > 0:
-            return int(minutes_left)
-        return None
-    except (ValueError, TypeError):
-        return None
+
+    minutes_left = None
+    time_data = await _get_state(HA_DRYER_ENTITY)
+    if time_data is not None:
+        ts = time_data.get("state")
+        if ts and ts not in ("unavailable", "unknown"):
+            try:
+                completion_dt = datetime.fromisoformat(ts)
+                delta = (completion_dt - datetime.now(timezone.utc)).total_seconds() / 60.0
+                if delta > 0:
+                    minutes_left = int(delta)
+            except (ValueError, TypeError):
+                pass
+
+    return {"job_state": job_state, "minutes_left": minutes_left}

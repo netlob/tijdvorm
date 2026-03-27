@@ -26,6 +26,39 @@ from backend.integrations.home_assistant import get_home_temperature
 
 logger = logging.getLogger("tijdvorm.timeform")
 
+DRYER_JOB_LABELS: dict[str, str] = {
+    "cooling": "Afkoelen",
+    "delay_wash": "Uitgesteld",
+    "drying": "Drogen",
+    "finished": "Klaar",
+    "refreshing": "Opfrissen",
+    "weight_sensing": "Wegen",
+    "wrinkle_prevent": "Kreukpreventie",
+    "dehumidifying": "Ontvochtigen",
+    "ai_drying": "AI drogen",
+    "sanitizing": "Ontsmetten",
+    "internal_care": "Intern onderhoud",
+    "freeze_protection": "Vorstbescherming",
+    "continuous_dehumidifying": "Continu ontvochtigen",
+    "thawing_frozen_inside": "Ontdooien",
+}
+
+
+def _build_dryer_str(dryer_status: dict | None) -> str | None:
+    """Build a Dutch dryer status string, or None if dryer is off."""
+    if not dryer_status:
+        return None
+    job = dryer_status.get("job_state", "")
+    label = DRYER_JOB_LABELS.get(job)
+    if not label:
+        return None
+    minutes = dryer_status.get("minutes_left")
+    if job == "finished":
+        return f"Droger {label.lower()}"
+    if minutes is not None and minutes > 0:
+        return f"Droger {label.lower()} · klaar over {minutes} min"
+    return f"Droger {label.lower()}"
+
 
 @dataclass
 class TimeformBase:
@@ -102,7 +135,7 @@ def _draw_text_overlay(
     fonts: dict,
     align_artwork_top: bool,
     time_str: str,
-    dryer_minutes: int | None = None,
+    dryer_status: dict | None = None,
 ) -> Image.Image:
     """Draw weather/time text onto a copy of the image."""
     image = image.convert("RGBA")
@@ -110,7 +143,7 @@ def _draw_text_overlay(
 
     temp_str = text_data.get("temp", "--°C")
     cond_str = text_data.get("condition", "Unknown")
-    dryer_str = f"Droger klaar over {dryer_minutes} min" if dryer_minutes is not None else None
+    dryer_str = _build_dryer_str(dryer_status)
 
     font_temp = fonts.get("font_temp")
     font_cond = fonts.get("font_cond")
@@ -161,7 +194,7 @@ def _draw_text_overlay(
     return image
 
 
-def compose_frame(base: TimeformBase, dryer_minutes: int | None = None) -> Image.Image:
+def compose_frame(base: TimeformBase, dryer_status: dict | None = None) -> Image.Image:
     """Compose a display-ready frame from a cached base — cheap, called every second."""
     time_str = time.strftime("%H:%M:%S")
     return _draw_text_overlay(
@@ -170,7 +203,7 @@ def compose_frame(base: TimeformBase, dryer_minutes: int | None = None) -> Image
         base.fonts,
         base.align_artwork_top,
         time_str,
-        dryer_minutes=dryer_minutes,
+        dryer_status=dryer_status,
     )
 
 

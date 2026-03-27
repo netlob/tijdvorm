@@ -30,7 +30,7 @@ from backend.config import (
 from backend.stream import FrameBuffer
 from backend.integrations.home_assistant import (
     is_tv_active, is_doorbell_active, get_sauna_status,
-    get_dryer_minutes_left, get_power_usage,
+    get_dryer_status, get_power_usage,
     get_sauna_sensor_temp, get_sauna_humidity,
 )
 from backend.modules import timeform, sauna, easter_eggs
@@ -261,7 +261,7 @@ async def generation_loop(frame_buffer: FrameBuffer):
                 continue
 
             # ── State change detection (TV active only) ───────────
-            dryer_min = await get_dryer_minutes_left()
+            dryer_status = await get_dryer_status()
 
             if tv_active:
                 override_path = easter_eggs.get_override_path()
@@ -319,7 +319,7 @@ async def generation_loop(frame_buffer: FrameBuffer):
                 cur_second = int(time.time())
                 if cur_second != last_second:
                     last_second = cur_second
-                    img = timeform.compose_frame(_tf_base, dryer_minutes=dryer_min)
+                    img = timeform.compose_frame(_tf_base, dryer_status=dryer_status)
                     jpeg = _image_to_jpeg(img)
                     await frame_buffer.push_frame(jpeg)
 
