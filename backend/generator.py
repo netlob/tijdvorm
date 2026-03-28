@@ -33,7 +33,7 @@ from backend.integrations.home_assistant import (
     get_dryer_status, get_power_usage,
     get_sauna_sensor_temp, get_sauna_humidity,
 )
-from backend.modules import timeform, sauna, easter_eggs
+from backend.modules import timeform, sauna, easter_eggs, pubquiz
 from backend.modules.timeform import TimeformBase
 from backend.modules.sauna import SaunaBase
 from backend.modules.doorbell import doorbell_loop
@@ -219,6 +219,7 @@ async def generation_loop(frame_buffer: FrameBuffer):
     # State change tracking
     prev_override: str | None = None
     prev_sauna_on = False
+    prev_pubquiz = False
 
     while True:
         try:
@@ -258,6 +259,35 @@ async def generation_loop(frame_buffer: FrameBuffer):
 
             if db_active:
                 await asyncio.sleep(1)
+                continue
+
+            # ── Pubquiz mode ──────────────────────────────────────
+            pq_settings = easter_eggs.load_settings()
+            pubquiz_on = bool(pq_settings.get("pubquiz_mode", False))
+
+            if pubquiz_on and not prev_pubquiz:
+                logger.info("Pubquiz mode enabled")
+                _tf_base = None
+                _sauna_base = None
+            elif not pubquiz_on and prev_pubquiz:
+                logger.info("Pubquiz mode disabled")
+                await pubquiz.close_browser()
+                last_gen_time = 0  # Force regeneration of normal content
+            prev_pubquiz = pubquiz_on
+
+            if pubquiz_on and tv_active:
+                cur_second = int(time.time())
+                if cur_second != last_second:
+                    last_second = cur_second
+                    screenshot_bytes = await pubquiz.take_screenshot()
+                    if screenshot_bytes:
+                        img = Image.open(io.BytesIO(screenshot_bytes))
+                        if img.size != (OUTPUT_WIDTH, OUTPUT_HEIGHT):
+                            img = img.resize((OUTPUT_WIDTH, OUTPUT_HEIGHT), Image.LANCZOS)
+                        jpeg = _image_to_jpeg(img)
+                        await frame_buffer.push_frame(jpeg)
+                        _write_live_preview(jpeg, {"type": "pubquiz", "filename": "pubquiz"})
+                await asyncio.sleep(max(0.05, ((time.time() // 1) + 1.03) - time.time()))
                 continue
 
             # ── State change detection (TV active only) ───────────

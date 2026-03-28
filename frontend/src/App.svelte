@@ -50,7 +50,7 @@
 
   let images = [];
   let override = { filename: null, set_at: null };
-  let settings = { easter_egg_chance_denominator: 10 };
+  let settings = { easter_egg_chance_denominator: 10, pubquiz_mode: false };
   let livePreview = { updated_at: null, type: null, filename: null, url: null };
 
   let loading = true;

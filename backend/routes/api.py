@@ -23,6 +23,7 @@ router = APIRouter(prefix="/api")
 
 DEFAULT_SETTINGS: dict[str, Any] = {
     "easter_egg_chance_denominator": 10,
+    "pubquiz_mode": True,
 }
 
 
@@ -346,7 +347,8 @@ def set_override(payload: dict[str, Any]):
 def get_settings():
     settings = _load_settings()
     denom = int(settings.get("easter_egg_chance_denominator", 10))
-    return {"easter_egg_chance_denominator": denom}
+    pubquiz = bool(settings.get("pubquiz_mode", False))
+    return {"easter_egg_chance_denominator": denom, "pubquiz_mode": pubquiz}
 
 
 @router.post("/settings")
@@ -360,10 +362,12 @@ def set_settings(payload: dict[str, Any]):
         raise HTTPException(status_code=400, detail="easter_egg_chance_denominator must be an integer") from e
     denom_i = max(0, denom_i)
 
-    settings = dict(DEFAULT_SETTINGS)
+    settings = _load_settings()
     settings["easter_egg_chance_denominator"] = denom_i
+    if "pubquiz_mode" in payload:
+        settings["pubquiz_mode"] = bool(payload["pubquiz_mode"])
     _save_settings(settings)
-    return {"ok": True, "easter_egg_chance_denominator": denom_i}
+    return {"ok": True, "easter_egg_chance_denominator": denom_i, "pubquiz_mode": settings.get("pubquiz_mode", False)}
 
 
 @router.get("/live-preview")

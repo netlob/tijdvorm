@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from "svelte";
   import { cls, ui } from "../lib/ui.js";
 
-  export let settings = { easter_egg_chance_denominator: 10 };
+  export let settings = { easter_egg_chance_denominator: 10, pubquiz_mode: false };
   export let saving = false;
   export let error = "";
 
@@ -100,6 +100,36 @@
       </div>
     </div>
   {/if}
+
+  <section class={ui.card}>
+    <div class={ui.cardHeader}>
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <div class={ui.cardTitle}>Pubquiz modus</div>
+          <div class={ui.cardDesc}>Toon het pubquiz scorebord op de TV.</div>
+        </div>
+        <button
+          class={cls(
+            "relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none",
+            settings?.pubquiz_mode ? "bg-green-500" : "bg-muted"
+          )}
+          role="switch"
+          aria-checked={settings?.pubquiz_mode ?? false}
+          on:click={() => {
+            settings.pubquiz_mode = !settings.pubquiz_mode;
+            onSave();
+          }}
+        >
+          <span
+            class={cls(
+              "pointer-events-none inline-block h-6 w-6 rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out",
+              settings?.pubquiz_mode ? "translate-x-5" : "translate-x-0"
+            )}
+          ></span>
+        </button>
+      </div>
+    </div>
+  </section>
 
   <section class={ui.card}>
     <div class={ui.cardHeader}>

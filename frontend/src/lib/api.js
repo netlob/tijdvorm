@@ -128,12 +128,14 @@ export async function apiSetPriority(filename, priority) {
   return await res.json();
 }
 
-export async function apiSaveSettings({ easter_egg_chance_denominator }) {
+export async function apiSaveSettings({ easter_egg_chance_denominator, pubquiz_mode }) {
   const denom = Number(easter_egg_chance_denominator);
+  const body = { easter_egg_chance_denominator: denom };
+  if (pubquiz_mode !== undefined) body.pubquiz_mode = !!pubquiz_mode;
   const res = await fetch(`${API_BASE}/settings`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ easter_egg_chance_denominator: denom }),
+    body: JSON.stringify(body),
   });
   if (!res.ok)
     throw new Error((await asText(res)) || "Failed to save settings");
