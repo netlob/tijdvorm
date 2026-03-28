@@ -1,3 +1,4 @@
 {
-  "easter_egg_chance_denominator": 0
+  "easter_egg_chance_denominator": 10,
+  "pubquiz_mode": true
 }
